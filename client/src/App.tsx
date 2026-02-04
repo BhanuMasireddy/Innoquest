@@ -12,6 +12,7 @@ import Login from "@/pages/login";
 import Signup from "@/pages/signup";
 import Attendance from "@/pages/attendance";
 import Profile from "@/pages/profile";
+import Badge from "@/pages/badge";
 import { Loader2 } from "lucide-react";
 
 function Router() {
@@ -42,6 +43,7 @@ function Router() {
           <Route path="/scanner" component={Scanner} />
           <Route path="/attendance" component={Attendance} />
           <Route path="/profile" component={Profile} />
+          <Route path="/badge/:id" component={Badge} />
         </>
       )}
       <Route component={NotFound} />

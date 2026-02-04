@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -27,9 +38,13 @@ import {
   UsersRound,
   ClipboardList,
   UserCircle,
+  Search,
+  Printer,
+  BarChart3,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ParticipantWithTeam, Team } from "@shared/schema";
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 
 interface Stats {
   total: number;
@@ -47,6 +62,8 @@ export default function Dashboard() {
   const [participantDialogOpen, setParticipantDialogOpen] = useState(false);
   const [newTeam, setNewTeam] = useState({ name: "", description: "" });
   const [newParticipant, setNewParticipant] = useState({ name: "", email: "", teamId: "" });
+  const [participantSearch, setParticipantSearch] = useState("");
+  const [volunteerSearch, setVolunteerSearch] = useState("");
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<Stats>({
     queryKey: ["/api/stats"],
@@ -172,6 +189,53 @@ export default function Dashboard() {
     refetchParticipants();
     if (isAdmin) refetchVolunteers();
   };
+
+  // Filtered lists
+  const filteredParticipants = useMemo(() => {
+    if (!participants) return [];
+    if (!participantSearch.trim()) return participants;
+    const search = participantSearch.toLowerCase();
+    return participants.filter(p => 
+      p.name.toLowerCase().includes(search) ||
+      p.email.toLowerCase().includes(search) ||
+      p.team?.name?.toLowerCase().includes(search)
+    );
+  }, [participants, participantSearch]);
+
+  const filteredVolunteers = useMemo(() => {
+    if (!volunteers) return [];
+    if (!volunteerSearch.trim()) return volunteers;
+    const search = volunteerSearch.toLowerCase();
+    return volunteers.filter(v => 
+      v.firstName.toLowerCase().includes(search) ||
+      (v.lastName?.toLowerCase().includes(search)) ||
+      (v.email?.toLowerCase().includes(search)) ||
+      (v.organization?.toLowerCase().includes(search))
+    );
+  }, [volunteers, volunteerSearch]);
+
+  // Chart data
+  const pieChartData = useMemo(() => {
+    if (!stats) return [];
+    return [
+      { name: "Checked In", value: stats.checkedIn, color: "#22c55e" },
+      { name: "Pending", value: stats.total - stats.checkedIn, color: "#6b7280" },
+    ];
+  }, [stats]);
+
+  const teamChartData = useMemo(() => {
+    if (!participants || !teams) return [];
+    const teamStats = teams.map(team => {
+      const teamParticipants = participants.filter(p => p.teamId === team.id);
+      const checkedIn = teamParticipants.filter(p => p.isCheckedIn).length;
+      return {
+        name: team.name.length > 12 ? team.name.substring(0, 12) + "..." : team.name,
+        total: teamParticipants.length,
+        checkedIn,
+      };
+    }).filter(t => t.total > 0);
+    return teamStats;
+  }, [participants, teams]);
 
   const downloadQrCode = async (participantId: string, participantName: string) => {
     try {
@@ -493,15 +557,34 @@ export default function Dashboard() {
                               <p className="text-sm text-muted-foreground">{team.description}</p>
                             )}
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteTeamMutation.mutate(team.id)}
-                            disabled={deleteTeamMutation.isPending}
-                            data-testid={`button-delete-team-${team.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                data-testid={`button-delete-team-${team.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Team?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete <strong>{team.name}</strong>? All participants in this team will also be deleted. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteTeamMutation.mutate(team.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </CardContent>
                     </Card>
@@ -512,11 +595,90 @@ export default function Dashboard() {
           </Card>
         )}
 
+        {/* Analytics Section */}
+        {isAdmin && stats && stats.total > 0 && (
+          <Card data-testid="card-analytics">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-primary" />
+                Analytics
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Pie Chart - Check-in Status */}
+                <div className="flex flex-col items-center">
+                  <h4 className="text-sm font-medium text-muted-foreground mb-4">Check-in Status</h4>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={pieChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        dataKey="value"
+                        label={({ name, value }) => `${name}: ${value}`}
+                      >
+                        {pieChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex gap-4 mt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-green-500" />
+                      <span className="text-sm">Checked In</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-gray-500" />
+                      <span className="text-sm">Pending</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bar Chart - Team Participation */}
+                {teamChartData.length > 0 && (
+                  <div className="flex flex-col items-center">
+                    <h4 className="text-sm font-medium text-muted-foreground mb-4">Team Participation</h4>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={teamChartData}>
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="total" fill="#6b7280" name="Total" />
+                        <Bar dataKey="checkedIn" fill="#22c55e" name="Checked In" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Participants Section */}
         <Card data-testid="card-participants">
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
-            <CardTitle className="text-lg font-semibold">Participants</CardTitle>
-            <Badge variant="secondary">{participants?.length ?? 0} participants</Badge>
+          <CardHeader className="flex flex-col gap-4">
+            <div className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-lg font-semibold">Participants</CardTitle>
+              <Badge variant="secondary">{filteredParticipants.length} / {participants?.length ?? 0}</Badge>
+            </div>
+            {participants && participants.length > 0 && (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search participants by name, email, or team..."
+                  value={participantSearch}
+                  onChange={(e) => setParticipantSearch(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-search-participants"
+                />
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {participantsLoading ? (
@@ -530,15 +692,20 @@ export default function Dashboard() {
                 <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>No participants yet. {isAdmin ? "Add participants to get started!" : "Waiting for admin to add participants."}</p>
               </div>
+            ) : filteredParticipants.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No participants match your search.</p>
+              </div>
             ) : (
               <div className="space-y-3">
-                {participants?.map((participant) => (
+                {filteredParticipants.map((participant) => (
                   <div
                     key={participant.id}
                     className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
                     data-testid={`participant-row-${participant.id}`}
                   >
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-wrap">
                       <Avatar className="w-10 h-10">
                         <AvatarFallback className="bg-primary/20 text-primary">
                           {participant.name[0].toUpperCase()}
@@ -559,6 +726,11 @@ export default function Dashboard() {
                     </div>
                     {isAdmin && (
                       <div className="flex items-center gap-2">
+                        <Link href={`/badge/${participant.id}`}>
+                          <Button variant="outline" size="icon" data-testid={`button-print-badge-${participant.id}`}>
+                            <Printer className="w-4 h-4" />
+                          </Button>
+                        </Link>
                         <Button
                           variant="outline"
                           size="sm"
@@ -566,17 +738,36 @@ export default function Dashboard() {
                           data-testid={`button-download-qr-${participant.id}`}
                         >
                           <Download className="w-4 h-4 mr-2" />
-                          QR Code
+                          QR
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteParticipantMutation.mutate(participant.id)}
-                          disabled={deleteParticipantMutation.isPending}
-                          data-testid={`button-delete-participant-${participant.id}`}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              data-testid={`button-delete-participant-${participant.id}`}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Participant?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete <strong>{participant.name}</strong>? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteParticipantMutation.mutate(participant.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     )}
                   </div>
@@ -589,9 +780,23 @@ export default function Dashboard() {
         {/* Volunteers Section - Admin Only */}
         {isAdmin && (
           <Card data-testid="card-volunteers">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <CardTitle className="text-lg font-semibold">Volunteers</CardTitle>
-              <Badge variant="secondary">{volunteers?.length ?? 0} volunteers</Badge>
+            <CardHeader className="flex flex-col gap-4">
+              <div className="flex flex-row items-center justify-between gap-4">
+                <CardTitle className="text-lg font-semibold">Volunteers</CardTitle>
+                <Badge variant="secondary">{filteredVolunteers.length} / {volunteers?.length ?? 0}</Badge>
+              </div>
+              {volunteers && volunteers.length > 0 && (
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search volunteers by name, email, or organization..."
+                    value={volunteerSearch}
+                    onChange={(e) => setVolunteerSearch(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-search-volunteers"
+                  />
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {volunteersLoading ? (
@@ -604,15 +809,20 @@ export default function Dashboard() {
                   <UserCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>No volunteers yet. Volunteers can sign up on the signup page.</p>
                 </div>
+              ) : filteredVolunteers.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No volunteers match your search.</p>
+                </div>
               ) : (
                 <div className="space-y-3">
-                  {volunteers?.map((volunteer) => (
+                  {filteredVolunteers.map((volunteer) => (
                     <div
                       key={volunteer.id}
                       className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
                       data-testid={`volunteer-row-${volunteer.id}`}
                     >
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-4 flex-wrap">
                         <Avatar className="w-10 h-10">
                           <AvatarFallback className="bg-accent/20 text-accent">
                             {volunteer.firstName[0].toUpperCase()}
@@ -669,15 +879,34 @@ export default function Dashboard() {
                             QR Code
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteVolunteerMutation.mutate(volunteer.id)}
-                          disabled={deleteVolunteerMutation.isPending}
-                          data-testid={`button-delete-volunteer-${volunteer.id}`}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              data-testid={`button-delete-volunteer-${volunteer.id}`}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Volunteer?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete <strong>{volunteer.firstName} {volunteer.lastName || ""}</strong>? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteVolunteerMutation.mutate(volunteer.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                   ))}

@@ -25,7 +25,10 @@ import type { Participant } from "@shared/schema";
 interface ScanResult {
   success: boolean;
   message: string;
-  participant?: Participant;
+  type?: "participant" | "volunteer";
+  participant?: Participant & { name?: string; teamName?: string };
+  volunteer?: { firstName: string; lastName?: string };
+  alreadyCheckedIn?: boolean;
 }
 
 export default function Scanner() {
@@ -88,21 +91,24 @@ export default function Scanner() {
         qr_hash: qrHash,
         scan_type: "ENTRY",
       });
-      return response as ScanResult;
+      return response.json() as Promise<ScanResult>;
     },
     onSuccess: (data) => {
       setLastScan(data);
       if (data.success) {
         playSound("success");
+        const name = data.type === "volunteer" 
+          ? `${data.volunteer?.firstName} ${data.volunteer?.lastName || ""}`
+          : data.participant?.name;
         toast({
           title: "Check-in Successful!",
-          description: `${data.participant?.name} from ${data.participant?.teamName}`,
+          description: name,
           className: "bg-green-500/10 border-green-500/30 text-green-500",
         });
       } else {
         playSound("error");
         toast({
-          title: "Check-in Failed",
+          title: data.message?.includes("already") ? "Already Checked In" : "Check-in Failed",
           description: data.message,
           variant: "destructive",
         });
@@ -110,16 +116,32 @@ export default function Scanner() {
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/scans/recent"] });
       queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
     },
-    onError: (error: Error) => {
+    onError: async (error: any) => {
       playSound("error");
+      let errorMessage = "Failed to process scan";
+      let alreadyCheckedIn = false;
+      
+      // Try to parse error response
+      if (error.response) {
+        try {
+          const errorData = await error.response.json();
+          errorMessage = errorData.message || errorMessage;
+          alreadyCheckedIn = errorData.message?.includes("already");
+        } catch (e) {
+          // Use default message
+        }
+      }
+      
       setLastScan({
         success: false,
-        message: error.message || "Failed to process scan",
+        message: errorMessage,
+        alreadyCheckedIn,
       });
       toast({
-        title: "Scan Error",
-        description: error.message || "Failed to process scan",
+        title: alreadyCheckedIn ? "Already Checked In" : "Scan Error",
+        description: errorMessage,
         variant: "destructive",
       });
     },
@@ -231,7 +253,7 @@ export default function Scanner() {
                 )}
               </Button>
               <Avatar className="w-8 h-8">
-                <AvatarImage src={user?.profileImageUrl || undefined} />
+                <AvatarImage src={undefined} />
                 <AvatarFallback className="bg-primary/20 text-primary text-sm">
                   {user?.firstName?.[0] || user?.email?.[0]?.toUpperCase() || "V"}
                 </AvatarFallback>
@@ -318,45 +340,66 @@ export default function Scanner() {
             className={`${
               lastScan.success
                 ? "border-green-500/30 bg-green-500/5 animate-success-pulse"
+                : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
+                ? "border-yellow-500/30 bg-yellow-500/5"
                 : "border-destructive/30 bg-destructive/5 animate-error-shake"
             }`}
             data-testid="scan-result-card"
           >
             <CardContent className="p-6">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
                 <div
-                  className={`w-16 h-16 rounded-full flex items-center justify-center ${
+                  className={`w-20 h-20 sm:w-16 sm:h-16 rounded-full flex items-center justify-center flex-shrink-0 ${
                     lastScan.success
                       ? "bg-green-500/20 text-green-500"
+                      : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
+                      ? "bg-yellow-500/20 text-yellow-500"
                       : "bg-destructive/20 text-destructive"
                   }`}
                 >
                   {lastScan.success ? (
-                    <UserCheck className="w-8 h-8" />
+                    <UserCheck className="w-10 h-10 sm:w-8 sm:h-8" />
                   ) : (
-                    <AlertCircle className="w-8 h-8" />
+                    <AlertCircle className="w-10 h-10 sm:w-8 sm:h-8" />
                   )}
                 </div>
                 <div className="flex-1">
                   <p
-                    className={`text-xl font-bold ${
-                      lastScan.success ? "text-green-500" : "text-destructive"
+                    className={`text-2xl sm:text-xl font-bold ${
+                      lastScan.success 
+                        ? "text-green-500" 
+                        : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
+                        ? "text-yellow-500"
+                        : "text-destructive"
                     }`}
                     data-testid="scan-result-status"
                   >
-                    {lastScan.success ? "Check-in Successful!" : "Check-in Failed"}
+                    {lastScan.success 
+                      ? "Check-in Successful!" 
+                      : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
+                      ? "Already Checked In"
+                      : "Check-in Failed"}
                   </p>
-                  {lastScan.participant ? (
-                    <div className="mt-1">
-                      <p className="font-medium" data-testid="scan-result-name">
+                  {lastScan.success && lastScan.type === "volunteer" && lastScan.volunteer ? (
+                    <div className="mt-2">
+                      <p className="text-lg font-medium" data-testid="scan-result-name">
+                        {lastScan.volunteer.firstName} {lastScan.volunteer.lastName || ""}
+                      </p>
+                      <Badge variant="outline" className="mt-1">Volunteer</Badge>
+                    </div>
+                  ) : lastScan.success && lastScan.participant ? (
+                    <div className="mt-2">
+                      <p className="text-lg font-medium" data-testid="scan-result-name">
                         {lastScan.participant.name}
                       </p>
-                      <p className="text-sm text-muted-foreground" data-testid="scan-result-team">
-                        {lastScan.participant.teamName}
-                      </p>
+                      {(lastScan.participant as any).team && (
+                        <p className="text-sm text-muted-foreground" data-testid="scan-result-team">
+                          Team: {(lastScan.participant as any).team?.name || "Unknown"}
+                        </p>
+                      )}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground" data-testid="scan-result-message">
+                    <p className="text-base sm:text-sm text-muted-foreground mt-2" data-testid="scan-result-message">
                       {lastScan.message}
                     </p>
                   )}
