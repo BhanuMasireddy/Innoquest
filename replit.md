@@ -12,6 +12,11 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes
 
+- **2026-02-04**: Added printable ID card badges (/badge/:id) with QR codes and print functionality
+- **2026-02-04**: Added analytics dashboard with pie chart (check-in status) and bar chart (team participation) using recharts
+- **2026-02-04**: Added search/filter functionality for participants and volunteers with memoized filters
+- **2026-02-04**: Added confirmation dialogs (AlertDialog) for all delete actions to prevent accidental deletions
+- **2026-02-04**: Enhanced mobile scanner with improved feedback messages ("Check-in Successful!" vs "Already Checked In")
 - **2026-02-04**: Added attendance status page showing checked-in and not-checked-in participants/volunteers
 - **2026-02-04**: Added volunteer profile management with phone, bio, organization fields
 - **2026-02-04**: Added admin checkout functionality for participants and volunteers
@@ -70,10 +75,11 @@ Preferred communication style: Simple, everyday language.
 - **/** - Landing page (unauthenticated) or Dashboard (authenticated)
 - **/login** - Login page
 - **/signup** - Signup page (creates volunteer accounts)
-- **/dashboard** - Main dashboard with stats, team/participant management
-- **/scanner** - QR code scanner for check-ins
+- **/dashboard** - Main dashboard with stats, analytics charts, search/filter, team/participant management
+- **/scanner** - QR code scanner for check-ins with mobile-optimized feedback
 - **/attendance** - View checked-in and not-checked-in participants/volunteers
 - **/profile** - User profile page to update personal information
+- **/badge/:id** - Printable ID card badge with QR code (3.5" x 5.5" standard size)
 
 ## Admin Account
 
@@ -129,6 +135,7 @@ Preferred communication style: Simple, everyday language.
 ### Frontend Libraries
 - **@tanstack/react-query**: Server state management
 - **html5-qrcode**: QR code scanning via device camera
+- **recharts**: Analytics charts (pie charts, bar charts)
 - **lucide-react**: Icon library
 - **Radix UI primitives**: Accessible component foundations
 - **class-variance-authority**: Component variant styling
