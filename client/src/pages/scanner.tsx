@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { Html5Qrcode } from "html5-qrcode";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { Participant } from "@shared/schema";
 
 interface ScanResult {
@@ -147,16 +148,19 @@ export default function Scanner() {
     },
     onSettled: () => {
       setProcessingQr(false);
-      // Cooldown to prevent rapid re-scans
+      // Short cooldown for fast rescanning (500ms)
       setTimeout(() => {
         cooldownRef.current = false;
-      }, 2000);
+      }, 500);
     },
   });
 
   const handleScan = useCallback((decodedText: string) => {
     if (cooldownRef.current || processingQr) return;
-    if (decodedText === lastScannedRef.current) return;
+    
+    // Allow rescan of same code after cooldown (for 1000+ participants handling)
+    // Only skip if same code scanned within processing window
+    if (decodedText === lastScannedRef.current && processingQr) return;
     
     cooldownRef.current = true;
     lastScannedRef.current = decodedText;
@@ -180,8 +184,9 @@ export default function Scanner() {
       await scanner.start(
         { facingMode: "environment" },
         {
-          fps: 10,
+          fps: 15, // Faster frame rate for quicker scanning
           qrbox: { width: 250, height: 250 },
+          aspectRatio: 1.0,
         },
         handleScan,
         () => {} // Ignore errors (no QR found)
@@ -239,7 +244,8 @@ export default function Scanner() {
               <Badge variant="outline" className="hidden sm:flex">Volunteer</Badge>
             </div>
             
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
               <Button
                 variant="ghost"
                 size="icon"
@@ -340,8 +346,6 @@ export default function Scanner() {
             className={`${
               lastScan.success
                 ? "border-green-500/30 bg-green-500/5 animate-success-pulse"
-                : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
-                ? "border-yellow-500/30 bg-yellow-500/5"
                 : "border-destructive/30 bg-destructive/5 animate-error-shake"
             }`}
             data-testid="scan-result-card"
@@ -352,8 +356,6 @@ export default function Scanner() {
                   className={`w-20 h-20 sm:w-16 sm:h-16 rounded-full flex items-center justify-center flex-shrink-0 ${
                     lastScan.success
                       ? "bg-green-500/20 text-green-500"
-                      : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
-                      ? "bg-yellow-500/20 text-yellow-500"
                       : "bg-destructive/20 text-destructive"
                   }`}
                 >
@@ -368,8 +370,6 @@ export default function Scanner() {
                     className={`text-2xl sm:text-xl font-bold ${
                       lastScan.success 
                         ? "text-green-500" 
-                        : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
-                        ? "text-yellow-500"
                         : "text-destructive"
                     }`}
                     data-testid="scan-result-status"

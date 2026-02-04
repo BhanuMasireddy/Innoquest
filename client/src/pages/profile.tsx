@@ -24,6 +24,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { Link } from "wouter";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function Profile() {
   const { user, logout, isLoggingOut, refetch } = useAuth();
@@ -97,6 +98,7 @@ export default function Profile() {
             </div>
             
             <div className="flex items-center gap-4">
+              <ThemeToggle />
               <Avatar className="w-8 h-8">
                 <AvatarFallback className="bg-primary/20 text-primary text-sm">
                   {user?.firstName?.[0] || "U"}

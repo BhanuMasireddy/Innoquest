@@ -21,6 +21,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Link } from "wouter";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { ParticipantWithTeam } from "@shared/schema";
 
 interface Volunteer {
@@ -151,6 +152,7 @@ export default function Attendance() {
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
+              <ThemeToggle />
               <Avatar className="w-8 h-8">
                 <AvatarFallback className="bg-primary/20 text-primary text-sm">
                   {user?.firstName?.[0] || "U"}

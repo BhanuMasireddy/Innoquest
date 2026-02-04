@@ -43,6 +43,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { Link } from "wouter";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { ParticipantWithTeam, Team } from "@shared/schema";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from "recharts";
 
@@ -300,6 +301,7 @@ export default function Dashboard() {
             </div>
             
             <div className="flex items-center gap-2">
+              <ThemeToggle />
               <Link href="/attendance">
                 <Button variant="ghost" size="sm" data-testid="link-attendance">
                   <ClipboardList className="w-4 h-4 mr-2" />
