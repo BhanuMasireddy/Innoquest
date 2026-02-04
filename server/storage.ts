@@ -51,6 +51,9 @@ export interface IStorage {
   updateParticipantCheckIn(id: string, isCheckedIn: boolean): Promise<Participant | undefined>;
   deleteParticipant(id: string): Promise<void>;
 
+  // Volunteers
+  deleteVolunteer(id: string): Promise<void>;
+
   // Scan Logs
   getScanLogs(): Promise<ScanLog[]>;
   getRecentScansWithParticipants(limit?: number): Promise<ScanLogWithParticipant[]>;
@@ -210,6 +213,18 @@ export class DatabaseStorage implements IStorage {
   async deleteParticipant(id: string): Promise<void> {
     await db.delete(scanLogs).where(eq(scanLogs.participantId, id));
     await db.delete(participants).where(eq(participants.id, id));
+  }
+
+  // Volunteers
+  async deleteVolunteer(id: string): Promise<void> {
+    const user = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (!user.length || user[0].role !== "volunteer") {
+      throw new Error("Volunteer not found");
+    }
+    // Delete any scan logs where this volunteer was the scanner
+    await db.delete(scanLogs).where(eq(scanLogs.scannedBy, id));
+    // Delete the user
+    await db.delete(users).where(eq(users.id, id));
   }
 
   // Scan Logs

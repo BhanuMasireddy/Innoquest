@@ -353,6 +353,21 @@ export async function registerRoutes(
     }
   });
 
+  // DELETE /api/volunteers/:id - Delete volunteer (admin only)
+  app.delete("/api/volunteers/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteVolunteer(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting volunteer:", error);
+      if (error.message === "Volunteer not found") {
+        return res.status(404).json({ error: "Volunteer not found" });
+      }
+      res.status(500).json({ error: "Failed to delete volunteer" });
+    }
+  });
+
   // ================== STATS ROUTES ==================
 
   // GET /api/stats - Returns count of total participants vs checked-in participants

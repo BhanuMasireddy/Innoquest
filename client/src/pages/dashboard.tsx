@@ -109,10 +109,68 @@ export default function Dashboard() {
     },
   });
 
+  const deleteParticipantMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/participants/${id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Participant deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete participant", description: error.message, variant: "destructive" });
+    },
+  });
+
+  interface Volunteer {
+    id: string;
+    firstName: string;
+    lastName: string | null;
+    email?: string;
+    organization?: string | null;
+    qrCodeHash?: string | null;
+    isCheckedIn: boolean;
+  }
+
+  const { data: volunteers, isLoading: volunteersLoading, refetch: refetchVolunteers } = useQuery<Volunteer[]>({
+    queryKey: ["/api/volunteers"],
+    enabled: isAdmin,
+  });
+
+  const deleteVolunteerMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/volunteers/${id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Volunteer deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete volunteer", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const generateVolunteerQrMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/volunteers/${id}/generate-qr`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "QR code generated!" });
+      queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to generate QR code", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleRefresh = () => {
     refetchStats();
     refetchTeams();
     refetchParticipants();
+    if (isAdmin) refetchVolunteers();
   };
 
   const downloadQrCode = async (participantId: string, participantName: string) => {
@@ -132,6 +190,28 @@ export default function Dashboard() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       toast({ title: "QR code downloaded!" });
+    } catch (error) {
+      toast({ title: "Failed to download QR code", variant: "destructive" });
+    }
+  };
+
+  const downloadVolunteerQrCode = async (volunteerId: string, volunteerName: string) => {
+    try {
+      const response = await fetch(`/api/volunteers/${volunteerId}/qrcode`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to download QR code");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `volunteer-qr-${volunteerName.replace(/\s+/g, "-")}.png`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast({ title: "Volunteer QR code downloaded!" });
     } catch (error) {
       toast({ title: "Failed to download QR code", variant: "destructive" });
     }
@@ -478,15 +558,26 @@ export default function Dashboard() {
                       )}
                     </div>
                     {isAdmin && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => downloadQrCode(participant.id, participant.name)}
-                        data-testid={`button-download-qr-${participant.id}`}
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        QR Code
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => downloadQrCode(participant.id, participant.name)}
+                          data-testid={`button-download-qr-${participant.id}`}
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          QR Code
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteParticipantMutation.mutate(participant.id)}
+                          disabled={deleteParticipantMutation.isPending}
+                          data-testid={`button-delete-participant-${participant.id}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -494,6 +585,107 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
+        {/* Volunteers Section - Admin Only */}
+        {isAdmin && (
+          <Card data-testid="card-volunteers">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-lg font-semibold">Volunteers</CardTitle>
+              <Badge variant="secondary">{volunteers?.length ?? 0} volunteers</Badge>
+            </CardHeader>
+            <CardContent>
+              {volunteersLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : volunteers?.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <UserCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No volunteers yet. Volunteers can sign up on the signup page.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {volunteers?.map((volunteer) => (
+                    <div
+                      key={volunteer.id}
+                      className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
+                      data-testid={`volunteer-row-${volunteer.id}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <Avatar className="w-10 h-10">
+                          <AvatarFallback className="bg-accent/20 text-accent">
+                            {volunteer.firstName[0].toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium" data-testid={`volunteer-name-${volunteer.id}`}>
+                            {volunteer.firstName} {volunteer.lastName || ""}
+                          </p>
+                          {volunteer.email && (
+                            <p className="text-sm text-muted-foreground">{volunteer.email}</p>
+                          )}
+                          {volunteer.organization && (
+                            <p className="text-xs text-muted-foreground">{volunteer.organization}</p>
+                          )}
+                        </div>
+                        {volunteer.isCheckedIn ? (
+                          <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
+                            Checked In
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">Pending</Badge>
+                        )}
+                        {volunteer.qrCodeHash ? (
+                          <Badge variant="outline" className="text-primary border-primary/30">
+                            QR Ready
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground">
+                            No QR
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!volunteer.qrCodeHash ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => generateVolunteerQrMutation.mutate(volunteer.id)}
+                            disabled={generateVolunteerQrMutation.isPending}
+                            data-testid={`button-generate-qr-${volunteer.id}`}
+                          >
+                            <QrCode className="w-4 h-4 mr-2" />
+                            Generate QR
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => downloadVolunteerQrCode(volunteer.id, volunteer.firstName)}
+                            data-testid={`button-download-volunteer-qr-${volunteer.id}`}
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            QR Code
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteVolunteerMutation.mutate(volunteer.id)}
+                          disabled={deleteVolunteerMutation.isPending}
+                          data-testid={`button-delete-volunteer-${volunteer.id}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );
