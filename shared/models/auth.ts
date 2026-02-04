@@ -22,6 +22,14 @@ export const users = pgTable("users", {
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name"),
   role: varchar("role").notNull().default("volunteer"),
+  // Volunteer profile fields
+  phone: varchar("phone"),
+  bio: text("bio"),
+  organization: varchar("organization"),
+  // Volunteer QR tracking
+  qrCodeHash: text("qr_code_hash").unique(),
+  isCheckedIn: varchar("is_checked_in").default("false"),
+  lastCheckIn: timestamp("last_check_in"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -48,5 +56,14 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const profileUpdateSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().optional(),
+  phone: z.string().optional(),
+  bio: z.string().optional(),
+  organization: z.string().optional(),
+});
+
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;

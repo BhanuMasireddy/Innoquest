@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage, generateQrHash } from "./storage";
 import { z } from "zod";
-import { signupSchema, loginSchema } from "@shared/schema";
+import { signupSchema, loginSchema, profileUpdateSchema } from "@shared/schema";
 import QRCode from "qrcode";
 
 // Extend Express Request type to include user
@@ -200,7 +200,157 @@ export async function registerRoutes(
       firstName: user.firstName,
       lastName: user.lastName,
       role: user.role,
+      phone: user.phone,
+      bio: user.bio,
+      organization: user.organization,
+      qrCodeHash: user.qrCodeHash,
+      isCheckedIn: user.isCheckedIn === "true",
     });
+  });
+
+  // PUT /api/auth/profile - Update user profile
+  app.put("/api/auth/profile", isAuthenticated, async (req, res) => {
+    try {
+      const parseResult = profileUpdateSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const userId = (req.session as any).userId;
+      const updatedUser = await storage.updateUserProfile(userId, parseResult.data);
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        role: updatedUser.role,
+        phone: updatedUser.phone,
+        bio: updatedUser.bio,
+        organization: updatedUser.organization,
+      });
+    } catch (error) {
+      console.error("Profile update error:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // ================== VOLUNTEER ROUTES ==================
+
+  // GET /api/volunteers - Get all volunteers (admin gets full data, volunteers get limited view)
+  app.get("/api/volunteers", isAuthenticated, async (req, res) => {
+    try {
+      const volunteers = await storage.getVolunteers();
+      const isAdminUser = (req.session as any).role === "admin";
+      
+      // Return full data for admins, limited data for volunteers
+      res.json(volunteers.map(v => {
+        if (isAdminUser) {
+          return {
+            id: v.id,
+            email: v.email,
+            firstName: v.firstName,
+            lastName: v.lastName,
+            phone: v.phone,
+            bio: v.bio,
+            organization: v.organization,
+            qrCodeHash: v.qrCodeHash,
+            isCheckedIn: v.isCheckedIn === "true",
+            lastCheckIn: v.lastCheckIn,
+            createdAt: v.createdAt,
+          };
+        }
+        // Limited view for non-admins (only show check-in status)
+        return {
+          id: v.id,
+          firstName: v.firstName,
+          lastName: v.lastName,
+          organization: v.organization,
+          isCheckedIn: v.isCheckedIn === "true",
+        };
+      }));
+    } catch (error) {
+      console.error("Error fetching volunteers:", error);
+      res.status(500).json({ error: "Failed to fetch volunteers" });
+    }
+  });
+
+  // POST /api/volunteers/:id/generate-qr - Generate QR code for volunteer (admin only)
+  app.post("/api/volunteers/:id/generate-qr", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const user = await storage.getUserById(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.role !== "volunteer") {
+        return res.status(400).json({ error: "QR codes can only be generated for volunteers" });
+      }
+      const qrHash = await storage.generateVolunteerQrHash(id);
+      res.json({ success: true, qrHash });
+    } catch (error) {
+      console.error("Error generating volunteer QR:", error);
+      res.status(500).json({ error: "Failed to generate QR code" });
+    }
+  });
+
+  // GET /api/volunteers/:id/qrcode - Download QR code for volunteer (admin only)
+  app.get("/api/volunteers/:id/qrcode", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const user = await storage.getUserById(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.role !== "volunteer") {
+        return res.status(400).json({ error: "QR codes can only be generated for volunteers" });
+      }
+
+      // Generate QR hash if not exists
+      let qrHash = user.qrCodeHash;
+      if (!qrHash) {
+        qrHash = await storage.generateVolunteerQrHash(id);
+      }
+
+      const qrCodeBuffer = await QRCode.toBuffer(qrHash, {
+        type: "png",
+        width: 300,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#FFFFFF",
+        },
+      });
+
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Disposition", `attachment; filename="volunteer-qr-${user.firstName}.png"`);
+      res.send(qrCodeBuffer);
+    } catch (error) {
+      console.error("Error generating volunteer QR code:", error);
+      res.status(500).json({ error: "Failed to generate QR code" });
+    }
+  });
+
+  // POST /api/volunteers/:id/checkout - Checkout volunteer (admin only)
+  app.post("/api/volunteers/:id/checkout", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const updated = await storage.updateVolunteerCheckIn(id, false);
+      if (!updated) {
+        return res.status(404).json({ error: "Volunteer not found" });
+      }
+      res.json({ success: true, volunteer: updated });
+    } catch (error) {
+      console.error("Error checking out volunteer:", error);
+      res.status(500).json({ error: "Failed to checkout volunteer" });
+    }
   });
 
   // ================== STATS ROUTES ==================
@@ -335,6 +485,32 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/participants/:id/checkout - Checkout participant (admin only)
+  app.post("/api/participants/:id/checkout", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const participant = await storage.getParticipantById(id);
+      if (!participant) {
+        return res.status(404).json({ error: "Participant not found" });
+      }
+      
+      const updated = await storage.updateParticipantCheckIn(id, false);
+      
+      // Log the checkout
+      const userId = (req.session as any).userId || "unknown";
+      await storage.createScanLog({
+        participantId: id,
+        scannedBy: userId,
+        scanType: "CHECKOUT",
+      });
+      
+      res.json({ success: true, participant: updated });
+    } catch (error) {
+      console.error("Error checking out participant:", error);
+      res.status(500).json({ error: "Failed to checkout participant" });
+    }
+  });
+
   // GET /api/participants/:id/qrcode - Generate QR code for participant (admin only)
   app.get("/api/participants/:id/qrcode", isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -404,7 +580,7 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/scan - Scan a QR code to check in a participant
+  // POST /api/scan - Scan a QR code to check in a participant or volunteer
   app.post("/api/scan", isAuthenticated, async (req: any, res) => {
     try {
       // Validate request body with Zod
@@ -419,45 +595,83 @@ export async function registerRoutes(
 
       const { qr_hash, scan_type } = parseResult.data;
 
-      // Find participant by QR hash
+      // First, try to find participant by QR hash
       const participant = await storage.getParticipantByQrHash(qr_hash);
 
-      if (!participant) {
-        return res.status(404).json({
-          success: false,
-          error: "Participant not found",
-          message: "No participant found with this QR code",
+      if (participant) {
+        // Check if already checked in for ENTRY scan type
+        if (scan_type === "ENTRY" && participant.isCheckedIn) {
+          return res.status(400).json({
+            success: false,
+            error: "Already checked in",
+            message: `${participant.name} is already checked in`,
+            participant,
+          });
+        }
+
+        // Update participant check-in status
+        const updatedParticipant = await storage.updateParticipantCheckIn(participant.id, true);
+
+        // Create scan log
+        const userId = (req.session as any).userId || "unknown";
+        await storage.createScanLog({
+          participantId: participant.id,
+          scannedBy: userId,
+          scanType: scan_type,
+        });
+
+        return res.json({
+          success: true,
+          message: `Successfully checked in ${participant.name}`,
+          type: "participant",
+          participant: {
+            ...updatedParticipant,
+            team: participant.team,
+          },
         });
       }
 
-      // Check if already checked in for ENTRY scan type
-      if (scan_type === "ENTRY" && participant.isCheckedIn) {
-        return res.status(400).json({
-          success: false,
-          error: "Already checked in",
-          message: `${participant.name} is already checked in`,
-          participant,
+      // Try to find volunteer by QR hash
+      const volunteer = await storage.getVolunteerByQrHash(qr_hash);
+
+      if (volunteer) {
+        // Check if already checked in
+        if (volunteer.isCheckedIn === "true") {
+          return res.status(400).json({
+            success: false,
+            error: "Already checked in",
+            message: `Volunteer ${volunteer.firstName} is already checked in`,
+            volunteer: {
+              id: volunteer.id,
+              firstName: volunteer.firstName,
+              lastName: volunteer.lastName,
+              email: volunteer.email,
+              isCheckedIn: true,
+            },
+          });
+        }
+
+        // Update volunteer check-in status
+        const updated = await storage.updateVolunteerCheckIn(volunteer.id, true);
+
+        return res.json({
+          success: true,
+          message: `Successfully checked in volunteer ${volunteer.firstName}`,
+          type: "volunteer",
+          volunteer: {
+            id: updated?.id,
+            firstName: updated?.firstName,
+            lastName: updated?.lastName,
+            email: updated?.email,
+            isCheckedIn: true,
+          },
         });
       }
 
-      // Update participant check-in status
-      const updatedParticipant = await storage.updateParticipantCheckIn(participant.id, true);
-
-      // Create scan log
-      const userId = (req.session as any).userId || "unknown";
-      await storage.createScanLog({
-        participantId: participant.id,
-        scannedBy: userId,
-        scanType: scan_type,
-      });
-
-      res.json({
-        success: true,
-        message: `Successfully checked in ${participant.name}`,
-        participant: {
-          ...updatedParticipant,
-          team: participant.team,
-        },
+      return res.status(404).json({
+        success: false,
+        error: "Not found",
+        message: "No participant or volunteer found with this QR code",
       });
     } catch (error) {
       console.error("Error processing scan:", error);

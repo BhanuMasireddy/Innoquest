@@ -12,10 +12,11 @@ import {
   type ParticipantWithTeam,
   type ScanLog,
   type InsertScanLog,
-  type ScanLogWithParticipant
+  type ScanLogWithParticipant,
+  type ProfileUpdateInput
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, ne, and } from "drizzle-orm";
 import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 
@@ -27,6 +28,13 @@ export interface IStorage {
   getUserById(id: string): Promise<User | undefined>;
   createUser(email: string, password: string, firstName: string, lastName?: string, role?: string): Promise<User>;
   validatePassword(user: User, password: string): Promise<boolean>;
+  updateUserProfile(id: string, data: ProfileUpdateInput): Promise<User | undefined>;
+  
+  // Volunteer management
+  getVolunteers(): Promise<User[]>;
+  getVolunteerByQrHash(qrHash: string): Promise<User | undefined>;
+  generateVolunteerQrHash(userId: string): Promise<string>;
+  updateVolunteerCheckIn(id: string, isCheckedIn: boolean): Promise<User | undefined>;
 
   // Teams
   getTeams(): Promise<Team[]>;
@@ -81,6 +89,50 @@ export class DatabaseStorage implements IStorage {
 
   async validatePassword(user: User, password: string): Promise<boolean> {
     return bcrypt.compare(password, user.passwordHash);
+  }
+
+  async updateUserProfile(id: string, data: ProfileUpdateInput): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({
+        firstName: data.firstName,
+        lastName: data.lastName || null,
+        phone: data.phone || null,
+        bio: data.bio || null,
+        organization: data.organization || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Volunteer management
+  async getVolunteers(): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.role, "volunteer")).orderBy(desc(users.createdAt));
+  }
+
+  async getVolunteerByQrHash(qrHash: string): Promise<User | undefined> {
+    const [volunteer] = await db.select().from(users).where(eq(users.qrCodeHash, qrHash));
+    return volunteer;
+  }
+
+  async generateVolunteerQrHash(userId: string): Promise<string> {
+    const qrHash = crypto.createHash("sha256").update(`volunteer-${userId}-${Date.now()}`).digest("hex");
+    await db.update(users).set({ qrCodeHash: qrHash }).where(eq(users.id, userId));
+    return qrHash;
+  }
+
+  async updateVolunteerCheckIn(id: string, isCheckedIn: boolean): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({ 
+        isCheckedIn: isCheckedIn ? "true" : "false",
+        lastCheckIn: isCheckedIn ? new Date() : null,
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
   }
 
   // Teams

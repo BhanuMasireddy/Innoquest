@@ -10,6 +10,8 @@ import Dashboard from "@/pages/dashboard";
 import Scanner from "@/pages/scanner";
 import Login from "@/pages/login";
 import Signup from "@/pages/signup";
+import Attendance from "@/pages/attendance";
+import Profile from "@/pages/profile";
 import { Loader2 } from "lucide-react";
 
 function Router() {
@@ -38,6 +40,8 @@ function Router() {
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/scanner" component={Scanner} />
+          <Route path="/attendance" component={Attendance} />
+          <Route path="/profile" component={Profile} />
         </>
       )}
       <Route component={NotFound} />

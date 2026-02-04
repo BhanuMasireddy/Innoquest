@@ -16,7 +16,6 @@ import {
   QrCode,
   Users,
   UserCheck,
-  Clock,
   TrendingUp,
   LogOut,
   ScanLine,
@@ -26,6 +25,8 @@ import {
   Trash2,
   Loader2,
   UsersRound,
+  ClipboardList,
+  UserCircle,
 } from "lucide-react";
 import { Link } from "wouter";
 import type { ParticipantWithTeam, Team } from "@shared/schema";
@@ -154,23 +155,24 @@ export default function Dashboard() {
               </Badge>
             </div>
             
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Link href="/attendance">
+                <Button variant="ghost" size="sm" data-testid="link-attendance">
+                  <ClipboardList className="w-4 h-4 mr-2" />
+                  <span className="hidden sm:inline">Attendance</span>
+                </Button>
+              </Link>
               <Link href="/scanner">
                 <Button variant="outline" size="sm" data-testid="link-scanner">
                   <ScanLine className="w-4 h-4 mr-2" />
-                  Scanner
+                  <span className="hidden sm:inline">Scanner</span>
                 </Button>
               </Link>
-              <div className="flex items-center gap-3">
-                <Avatar className="w-8 h-8">
-                  <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                    {user?.firstName?.[0] || user?.email?.[0]?.toUpperCase() || "U"}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="hidden md:block text-sm font-medium">
-                  {user?.firstName || user?.email?.split("@")[0] || "User"}
-                </span>
-              </div>
+              <Link href="/profile">
+                <Button variant="ghost" size="icon" data-testid="link-profile">
+                  <UserCircle className="w-5 h-5" />
+                </Button>
+              </Link>
               <Button
                 variant="ghost"
                 size="icon"
