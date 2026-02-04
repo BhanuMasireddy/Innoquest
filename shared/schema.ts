@@ -1,28 +1,32 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, uuid, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export * from "./models/auth";
 
-// Profiles table - extends users with role
-export const profiles = pgTable("profiles", {
+// Teams table
+export const teams = pgTable("teams", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: varchar("user_id").notNull().unique(),
-  email: text("email").notNull(),
-  role: text("role").notNull().default("volunteer"),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  createdBy: varchar("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertProfileSchema = createInsertSchema(profiles).omit({ id: true });
-export type InsertProfile = z.infer<typeof insertProfileSchema>;
-export type Profile = typeof profiles.$inferSelect;
+export const insertTeamSchema = createInsertSchema(teams).omit({ 
+  id: true, 
+  createdAt: true 
+});
+export type InsertTeam = z.infer<typeof insertTeamSchema>;
+export type Team = typeof teams.$inferSelect;
 
-// Participants table
+// Participants table - linked to teams
 export const participants = pgTable("participants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   email: text("email").notNull(),
-  teamName: text("team_name").notNull(),
+  teamId: uuid("team_id").notNull().references(() => teams.id),
   isCheckedIn: boolean("is_checked_in").notNull().default(false),
   qrCodeHash: text("qr_code_hash").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -35,6 +39,11 @@ export const insertParticipantSchema = createInsertSchema(participants).omit({
 });
 export type InsertParticipant = z.infer<typeof insertParticipantSchema>;
 export type Participant = typeof participants.$inferSelect;
+
+// Extended participant with team info
+export type ParticipantWithTeam = Participant & {
+  team: Team;
+};
 
 // Scan logs table
 export const scanLogs = pgTable("scan_logs", {
@@ -54,5 +63,5 @@ export type ScanLog = typeof scanLogs.$inferSelect;
 
 // Extended scan log with participant info
 export type ScanLogWithParticipant = ScanLog & {
-  participant: Participant;
+  participant: ParticipantWithTeam;
 };

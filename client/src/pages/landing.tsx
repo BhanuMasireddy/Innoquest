@@ -19,7 +19,7 @@ export default function Landing() {
             </div>
             <div className="flex items-center gap-4">
               <a
-                href="/api/login"
+                href="/login"
                 data-testid="link-login"
               >
                 <Button variant="outline" size="sm">
@@ -27,7 +27,7 @@ export default function Landing() {
                 </Button>
               </a>
               <a
-                href="/api/login"
+                href="/signup"
                 data-testid="button-get-started"
               >
                 <Button size="sm">
@@ -62,15 +62,17 @@ export default function Landing() {
               </div>
               
               <div className="flex flex-wrap gap-4">
-                <a href="/api/login" data-testid="button-hero-cta">
+                <a href="/signup" data-testid="button-hero-cta">
                   <Button size="lg" className="animate-pulse-glow">
                     <QrCode className="w-5 h-5 mr-2" />
                     Start Scanning
                   </Button>
                 </a>
-                <Button variant="outline" size="lg" data-testid="button-view-demo">
-                  View Demo
-                </Button>
+                <a href="/login" data-testid="button-view-demo">
+                  <Button variant="outline" size="lg">
+                    Sign In
+                  </Button>
+                </a>
               </div>
 
               <div className="flex items-center gap-6 pt-4">
@@ -194,7 +196,7 @@ export default function Landing() {
               <p className="text-lg text-muted-foreground max-w-xl mx-auto">
                 Join hundreds of hackathon organizers who trust HackTrack for their events.
               </p>
-              <a href="/api/login" data-testid="button-cta-bottom">
+              <a href="/signup" data-testid="button-cta-bottom">
                 <Button size="lg" className="animate-pulse-glow mt-4">
                   <QrCode className="w-5 h-5 mr-2" />
                   Get Started Free
