@@ -8,6 +8,9 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
+// Required on Render/behind reverse proxies so secure cookies work correctly.
+app.set("trust proxy", 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
