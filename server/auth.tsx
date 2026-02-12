@@ -3,6 +3,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { type Express } from "express";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
+import createMemoryStore from "memorystore";
 import { storage } from "./storage";
 import { pool } from "./db";
 import { type User as SelectUser } from "@shared/schema";
@@ -14,17 +15,23 @@ declare global {
 }
 
 export async function setupAuth(app: Express) {
+  const isProd = process.env.NODE_ENV === "production";
   const PostgresStore = connectPg(session);
-  const sessionStore = new PostgresStore({
-    pool,
-    createTableIfMissing: true,
-    tableName: "sessions",
-    disableTouch: true,
-    pruneSessionInterval: process.env.NODE_ENV === "production" ? 60 * 15 : false,
-    errorLog: (err) => {
-      console.error("Session store error:", err.message);
-    },
-  });
+  const MemoryStore = createMemoryStore(session);
+  const sessionStore = isProd
+    ? new PostgresStore({
+        pool,
+        createTableIfMissing: true,
+        tableName: "sessions",
+        disableTouch: true,
+        pruneSessionInterval: 60 * 15,
+        errorLog: (err) => {
+          console.error("Session store error:", err.message);
+        },
+      })
+    : new MemoryStore({
+        checkPeriod: 24 * 60 * 60 * 1000,
+      });
 
   app.use(
     session({
@@ -32,9 +39,9 @@ export async function setupAuth(app: Express) {
       resave: false,
       saveUninitialized: false,
       store: sessionStore,
-      proxy: process.env.NODE_ENV === "production",
+      proxy: isProd,
       cookie: {
-        secure: process.env.NODE_ENV === "production",
+        secure: isProd,
         sameSite: "lax",
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000,

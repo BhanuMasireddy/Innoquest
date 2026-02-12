@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -46,6 +48,7 @@ import {
   Pencil,
   ShieldCheck, // Add this
   FileDown,    // Add this (for Export)
+  Utensils,
 } from "lucide-react";
 import { Link } from "wouter";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -66,6 +69,21 @@ interface Lab {
   created_at: string;
 }
 
+type MealType = "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
+
+interface SystemModeConfig {
+  mode: "ATTENDANCE" | "MEAL";
+  selectedMealType: MealType | null;
+  allowedLabIds: string[];
+}
+
+interface MealAnalytics {
+  mealType: MealType;
+  total: number;
+  taken: number;
+  remaining: number;
+}
+
 
 
 export default function Dashboard() {
@@ -84,6 +102,9 @@ export default function Dashboard() {
   const [newParticipant, setNewParticipant] = useState({ name: "", email: "", teamId: "", labId: "" });
   const [participantSearch, setParticipantSearch] = useState("");
   const [volunteerSearch, setVolunteerSearch] = useState("");
+  const [mealModeEnabled, setMealModeEnabled] = useState(false);
+  const [selectedMealType, setSelectedMealType] = useState<MealType>("BREAKFAST");
+  const [allowedMealLabIds, setAllowedMealLabIds] = useState<string[]>([]);
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<Stats>({
     queryKey: ["/api/stats"],
@@ -91,6 +112,20 @@ export default function Dashboard() {
 
   const { data: labs, isLoading: labsLoading } = useQuery<Lab[]>({
     queryKey: ["/api/labs"],
+  });
+
+  const { data: modeConfig } = useQuery<SystemModeConfig>({
+    queryKey: ["/api/system/mode"],
+    enabled: isAdmin,
+  });
+
+  const { data: mealAnalytics } = useQuery<MealAnalytics>({
+    queryKey: ["/api/meals/analytics", selectedMealType],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/meals/analytics?mealType=${selectedMealType}`);
+      return response.json();
+    },
+    enabled: isAdmin && mealModeEnabled,
   });
 
   const { data: teams, isLoading: teamsLoading, refetch: refetchTeams } = useQuery<Team[]>({
@@ -151,6 +186,13 @@ export default function Dashboard() {
     },
     enabled: !!selectedLab,
   });
+
+  useEffect(() => {
+    if (!modeConfig) return;
+    setMealModeEnabled(modeConfig.mode === "MEAL");
+    setSelectedMealType((modeConfig.selectedMealType as MealType | null) ?? "BREAKFAST");
+    setAllowedMealLabIds(modeConfig.allowedLabIds ?? []);
+  }, [modeConfig]);
 
 
 
@@ -224,6 +266,31 @@ export default function Dashboard() {
     },
   });
 
+  const saveMealModeMutation = useMutation({
+    mutationFn: async () => {
+      const payload =
+        mealModeEnabled
+          ? {
+              mode: "MEAL" as const,
+              selectedMealType,
+              allowedLabIds: allowedMealLabIds,
+            }
+          : {
+              mode: "ATTENDANCE" as const,
+            };
+      const response = await apiRequest("PUT", "/api/system/mode", payload);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Mode settings saved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/system/mode"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/meals/analytics"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to save mode settings", description: error.message, variant: "destructive" });
+    },
+  });
+
 
   const deleteTeamMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -251,6 +318,21 @@ export default function Dashboard() {
     },
     onError: (error: any) => {
       toast({ title: "Failed to delete participant", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resetParticipantMealsMutation = useMutation({
+    mutationFn: async (participantId: string) => {
+      const response = await apiRequest("POST", `/api/participants/${participantId}/meals/reset`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Participant meal consumption reset" });
+      queryClient.invalidateQueries({ queryKey: ["/api/meals/analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to reset meals", description: error.message, variant: "destructive" });
     },
   });
 
@@ -348,6 +430,12 @@ export default function Dashboard() {
     refetchTeams();
     refetchParticipants();
     if (isAdmin) refetchVolunteers();
+  };
+
+  const toggleAllowedLab = (labId: string, checked: boolean) => {
+    setAllowedMealLabIds((prev) =>
+      checked ? Array.from(new Set([...prev, labId])) : prev.filter((id) => id !== labId)
+    );
   };
 
   // Filtered lists
@@ -623,6 +711,102 @@ export default function Dashboard() {
             testId="stat-rate"
           />
         </div>
+
+        {isAdmin && (
+          <Card data-testid="card-meal-mode" className="border-t-4 border-t-amber-500">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Utensils className="w-5 h-5 text-amber-500" />
+                Meal Mode Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">System Mode</p>
+                  <p className="text-sm text-muted-foreground">
+                    Switch between normal attendance and meal validation scanning.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">Attendance</span>
+                  <Switch checked={mealModeEnabled} onCheckedChange={setMealModeEnabled} />
+                  <span className="text-sm font-medium">Meal</span>
+                </div>
+              </div>
+
+              {mealModeEnabled && (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <Label>Select Meal Type</Label>
+                    <Select value={selectedMealType} onValueChange={(v) => setSelectedMealType(v as MealType)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="BREAKFAST">Breakfast</SelectItem>
+                        <SelectItem value="LUNCH">Lunch</SelectItem>
+                        <SelectItem value="SNACKS">Snacks</SelectItem>
+                        <SelectItem value="DINNER">Dinner</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Allowed Labs</Label>
+                    <div className="rounded-md border p-3 space-y-2 max-h-44 overflow-y-auto">
+                      {labs?.map((lab) => (
+                        <div key={lab.id} className="flex items-center gap-2">
+                          <Checkbox
+                            checked={allowedMealLabIds.includes(lab.id)}
+                            onCheckedChange={(checked) => toggleAllowedLab(lab.id, Boolean(checked))}
+                            id={`meal-lab-${lab.id}`}
+                          />
+                          <Label htmlFor={`meal-lab-${lab.id}`} className="cursor-pointer font-normal">
+                            {lab.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => saveMealModeMutation.mutate()}
+                  disabled={saveMealModeMutation.isPending || (mealModeEnabled && allowedMealLabIds.length === 0)}
+                >
+                  {saveMealModeMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Save Mode Settings
+                </Button>
+              </div>
+
+              {mealModeEnabled && mealAnalytics && (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card>
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground">Total Participants</p>
+                      <p className="text-2xl font-bold">{mealAnalytics.total}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground">Taken</p>
+                      <p className="text-2xl font-bold text-green-500">{mealAnalytics.taken}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground">Remaining</p>
+                      <p className="text-2xl font-bold text-amber-500">{mealAnalytics.remaining}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Admin Actions */}
       {isAdmin && (
@@ -1254,6 +1438,16 @@ export default function Dashboard() {
                         >
                           <Download className="w-4 h-4 mr-2" />
                           QR
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => resetParticipantMealsMutation.mutate(participant.id)}
+                          disabled={resetParticipantMealsMutation.isPending}
+                          data-testid={`button-reset-meals-${participant.id}`}
+                        >
+                          <Utensils className="w-4 h-4 mr-2" />
+                          Reset Meals
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>

@@ -26,6 +26,8 @@ import type { Participant } from "@shared/schema";
 interface ScanResult {
   success: boolean;
   message: string;
+  mode?: "ATTENDANCE" | "MEAL";
+  mealType?: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
   type?: "participant" | "volunteer";
   participant?: Participant & { name?: string; teamName?: string };
   volunteer?: { firstName: string; lastName?: string };
@@ -37,6 +39,8 @@ type PendingScan = {
   qrHash: string;
   name: string;
   scanType: "ENTRY" | "EXIT";
+  mode?: "ATTENDANCE" | "MEAL";
+  mealType?: "BREAKFAST" | "LUNCH" | "SNACKS" | "DINNER";
 };
 
 
@@ -63,6 +67,14 @@ export default function Scanner() {
   const confirmingRef = useRef<boolean>(false);
   const successAudioRef = useRef<HTMLAudioElement | null>(null);
   const errorAudioRef = useRef<HTMLAudioElement | null>(null);
+  const invalidateAfterScan = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/scans/recent"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/system/mode"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/meals/analytics"] });
+  }, [queryClient]);
 
   const resetScannerState = () => {
     setProcessingQr(false);
@@ -162,18 +174,19 @@ export default function Scanner() {
 
     toast({
       title:
-        data.scanType === "EXIT" ? "Checked out" : "Checked in",
+        data.mode === "MEAL"
+          ? `${data.mealType || "Meal"} consumed`
+          : data.scanType === "EXIT"
+            ? "Checked out"
+            : "Checked in",
       description: name,
       className:
-        data.scanType === "EXIT"
+        data.mode !== "MEAL" && data.scanType === "EXIT"
           ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
           : "bg-green-500/10 border-green-500/30 text-green-500",
     });
 
-    queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/scans/recent"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
+    invalidateAfterScan();
   },
 
   onSettled: () => {
@@ -224,6 +237,8 @@ const handleScan = useCallback((decodedText: string) => {
         qrHash: decodedText,
         name: data.name,
         scanType: data.scanType,
+        mode: data.mode,
+        mealType: data.mealType,
       });
 
       setConfirming(true);
@@ -435,9 +450,11 @@ const stopScanner = async () => {
                     data-testid="scan-result-status"
                   >
                     {lastScan.success
-                    ? lastScan.scanType === "EXIT"
-                      ? "Checked Out Successfully!"
-                      : "Checked In Successfully!"
+                    ? lastScan.mode === "MEAL"
+                      ? `${lastScan.mealType || "Meal"} Consumed Successfully!`
+                      : lastScan.scanType === "EXIT"
+                        ? "Checked Out Successfully!"
+                        : "Checked In Successfully!"
                     : "Scan Failed"}
                   </p>
                   {lastScan.success && lastScan.type === "volunteer" && lastScan.volunteer ? (
@@ -475,16 +492,27 @@ const stopScanner = async () => {
     <Card className="w-full max-w-md">
       <CardHeader>
         <CardTitle className="text-lg">
-          {pendingScan.scanType === "EXIT"
-            ? "Confirm Check-out"
-            : "Confirm Check-in"}
+          {pendingScan.mode === "MEAL"
+            ? `Confirm ${pendingScan.mealType || "Meal"}`
+            : pendingScan.scanType === "EXIT"
+              ? "Confirm Check-out"
+              : "Confirm Check-in"}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Are you sure you want to
-          {pendingScan.scanType === "EXIT" ? " check out " : " check in "}
-          <span className="font-semibold">{pendingScan.name}</span>?
+          {pendingScan.mode === "MEAL" ? (
+            <>
+              Confirm <span className="font-semibold">{pendingScan.mealType || "meal"}</span> for{" "}
+              <span className="font-semibold">{pendingScan.name}</span>?
+            </>
+          ) : (
+            <>
+              Are you sure you want to
+              {pendingScan.scanType === "EXIT" ? " check out " : " check in "}
+              <span className="font-semibold">{pendingScan.name}</span>?
+            </>
+          )}
         </p>
 
         <div className="flex gap-2">
@@ -518,8 +546,11 @@ const stopScanner = async () => {
                     setLastScan({
                       ...data,
                       scanType: pendingScan.scanType,
+                      mode: pendingScan.mode,
+                      mealType: pendingScan.mealType,
                     });
                     playSound("success");
+                    invalidateAfterScan();
                   } else {
                     playSound("error");
                     toast({
@@ -551,7 +582,11 @@ const stopScanner = async () => {
                 });
             }}
           >
-            {pendingScan.scanType === "EXIT" ? "Check Out" : "Check In"}
+            {pendingScan.mode === "MEAL"
+              ? `Consume ${pendingScan.mealType || "Meal"}`
+              : pendingScan.scanType === "EXIT"
+                ? "Check Out"
+                : "Check In"}
           </Button>
         </div>
       </CardContent>

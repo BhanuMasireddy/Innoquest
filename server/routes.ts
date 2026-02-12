@@ -2,7 +2,14 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage, generateQrHash } from "./storage";
 import { z } from "zod";
-import { signupSchema, loginSchema, profileUpdateSchema } from "@shared/schema";
+import {
+  signupSchema,
+  loginSchema,
+  profileUpdateSchema,
+  updateSystemModeSchema,
+  mealTypes,
+  type MealType,
+} from "@shared/schema";
 import QRCode from "qrcode";
 import { parseParticipantExcel } from "./excel"; // Ensure you created this file
 import multer from "multer";
@@ -172,6 +179,14 @@ const loadUser = async (req: Request, res: Response, next: NextFunction) => {
 const scanRequestSchema = z.object({
   qr_hash: z.string().min(1, "QR hash is required"),
   scan_type: z.enum(["ENTRY", "EXIT"]),
+});
+
+const mealAnalyticsQuerySchema = z.object({
+  mealType: z.enum(mealTypes).optional(),
+});
+
+const resetMealsSchema = z.object({
+  mealType: z.enum(mealTypes).optional(),
 });
 
 
@@ -533,6 +548,86 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching stats:", error);
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // ================== SYSTEM MODE + MEAL ROUTES ==================
+  app.get("/api/system/mode", isAuthenticated, async (_req, res) => {
+    try {
+      const mode = await storage.getSystemModeConfig();
+      res.json(mode);
+    } catch (error) {
+      console.error("Error fetching system mode:", error);
+      res.status(500).json({ error: "Failed to fetch system mode" });
+    }
+  });
+
+  app.put("/api/system/mode", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parseResult = updateSystemModeSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const payload = parseResult.data;
+      if (payload.mode === "MEAL" && !payload.selectedMealType) {
+        return res.status(400).json({ error: "selectedMealType is required in MEAL mode" });
+      }
+
+      const updated = await storage.updateSystemModeConfig(payload);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating system mode:", error);
+      res.status(500).json({ error: "Failed to update system mode" });
+    }
+  });
+
+  app.get("/api/meals/analytics", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parseResult = mealAnalyticsQuerySchema.safeParse(req.query);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid query",
+        });
+      }
+
+      const modeConfig = await storage.getSystemModeConfig();
+      const mealType =
+        (parseResult.data.mealType as MealType | undefined) ??
+        (modeConfig.selectedMealType as MealType | null);
+
+      if (!mealType) {
+        return res.status(400).json({ error: "mealType is required" });
+      }
+
+      const analytics = await storage.getMealAnalytics(mealType);
+      res.json({ mealType, ...analytics });
+    } catch (error) {
+      console.error("Error fetching meal analytics:", error);
+      res.status(500).json({ error: "Failed to fetch meal analytics" });
+    }
+  });
+
+  app.post("/api/participants/:id/meals/reset", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const participantId = req.params.id as string;
+      const parseResult = resetMealsSchema.safeParse(req.body ?? {});
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      await storage.resetParticipantMeals(participantId, parseResult.data.mealType as MealType | undefined);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error resetting participant meals:", error);
+      res.status(500).json({ error: "Failed to reset participant meals" });
     }
   });
 
@@ -1216,6 +1311,49 @@ app.post("/api/scan-preview", isAuthenticated, async (req, res) => {
     }
 
     const { qr_hash } = parseResult.data;
+    const modeConfig = await storage.getSystemModeConfig();
+
+    if (modeConfig.mode === "MEAL") {
+      const mealType = modeConfig.selectedMealType as MealType | null;
+      if (!mealType) {
+        return res.status(400).json({
+          success: false,
+          message: "Meal mode is enabled but no meal type is selected",
+        });
+      }
+
+      const participant = await storage.getParticipantByQrHash(qr_hash);
+      if (!participant) {
+        return res.status(404).json({
+          success: false,
+          message: "QR not linked to a participant",
+        });
+      }
+
+      if (!modeConfig.allowedLabIds.includes(participant.labId)) {
+        return res.status(403).json({
+          success: false,
+          message: "Lab not allowed",
+        });
+      }
+
+      const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
+      if (alreadyConsumed) {
+        return res.status(400).json({
+          success: false,
+          message: "Already consumed",
+        });
+      }
+
+      return res.json({
+        success: true,
+        mode: "MEAL",
+        mealType,
+        type: "participant",
+        name: participant.name,
+        scanType: "ENTRY",
+      });
+    }
 
     // -------- Participant --------
     const participant = await storage.getParticipantByQrHash(qr_hash);
@@ -1273,6 +1411,58 @@ app.post("/api/scan", isAuthenticated, async (req: any, res) => {
     }
 
     const { qr_hash, scan_type } = parseResult.data;
+    const modeConfig = await storage.getSystemModeConfig();
+
+    if (modeConfig.mode === "MEAL") {
+      const mealType = modeConfig.selectedMealType as MealType | null;
+      if (!mealType) {
+        return res.status(400).json({
+          success: false,
+          message: "Meal mode is enabled but no meal type is selected",
+        });
+      }
+
+      const participant = await storage.getParticipantByQrHash(qr_hash);
+      if (!participant) {
+        return res.status(404).json({
+          success: false,
+          message: "QR not recognized",
+        });
+      }
+
+      if (!modeConfig.allowedLabIds.includes(participant.labId)) {
+        return res.status(403).json({
+          success: false,
+          message: "Lab not allowed",
+        });
+      }
+
+      const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
+      if (alreadyConsumed) {
+        return res.status(400).json({
+          success: false,
+          message: "Already consumed",
+        });
+      }
+
+      await storage.consumeMeal(participant.id, mealType);
+
+      return res.json({
+        success: true,
+        mode: "MEAL",
+        mealType,
+        type: "participant",
+        scanType: "ENTRY",
+        message: `${mealType} consumed for ${participant.name}`,
+        participant: {
+          id: participant.id,
+          name: participant.name,
+          team: participant.team,
+          lab: participant.lab,
+          isCheckedIn: participant.isCheckedIn,
+        },
+      });
+    }
 
     // ================= PARTICIPANT =================
     const participant = await storage.getParticipantByQrHash(qr_hash);

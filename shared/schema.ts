@@ -6,6 +6,7 @@ import {
   boolean,
   timestamp,
   uuid,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -78,6 +79,49 @@ export type ParticipantWithTeamAndLab = Participant & {
   team: Team;
   lab: Lab;
 };
+
+export const mealTypes = ["BREAKFAST", "LUNCH", "SNACKS", "DINNER"] as const;
+export type MealType = (typeof mealTypes)[number];
+
+export const systemModeConfig = pgTable("system_mode_config", {
+  id: text("id").primaryKey().default("global"),
+  mode: text("mode").notNull().default("ATTENDANCE"), // ATTENDANCE | MEAL
+  selectedMealType: text("selected_meal_type"),
+  allowedLabIds: text("allowed_lab_ids").array().notNull().default(sql`'{}'::text[]`),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const mealConsumptions = pgTable(
+  "meal_consumptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => participants.id, { onDelete: "cascade" }),
+    mealType: text("meal_type").notNull(), // BREAKFAST | LUNCH | SNACKS | DINNER
+    consumedAt: timestamp("consumed_at").defaultNow(),
+  },
+  (table) => ({
+    participantMealUnique: uniqueIndex("meal_consumptions_participant_meal_unique").on(
+      table.participantId,
+      table.mealType
+    ),
+  })
+);
+
+export const insertMealConsumptionSchema = createInsertSchema(mealConsumptions).omit({
+  id: true,
+  consumedAt: true,
+});
+export type InsertMealConsumption = z.infer<typeof insertMealConsumptionSchema>;
+export type MealConsumption = typeof mealConsumptions.$inferSelect;
+
+export const updateSystemModeSchema = z.object({
+  mode: z.enum(["ATTENDANCE", "MEAL"]),
+  selectedMealType: z.enum(mealTypes).nullable().optional(),
+  allowedLabIds: z.array(z.string()).optional(),
+});
+export type UpdateSystemModeInput = z.infer<typeof updateSystemModeSchema>;
 
 /* =======================
    Scan Logs

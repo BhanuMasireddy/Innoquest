@@ -4,6 +4,8 @@ import {
   labs,
   participants,
   scanLogs,
+  mealConsumptions,
+  systemModeConfig,
   type User,
   type InsertUser,
   type Team,
@@ -17,6 +19,9 @@ import {
   type InsertScanLog,
   type ScanLogWithParticipant,
   type ProfileUpdateInput,
+  type MealType,
+  type MealConsumption,
+  type UpdateSystemModeInput,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -78,6 +83,14 @@ export interface IStorage {
   updateParticipantCheckIn(id: string, isCheckedIn: boolean): Promise<Participant | undefined>;
   deleteParticipant(id: string): Promise<void>;
   getParticipantByEmail(email: string): Promise<Participant | undefined>;
+  updateParticipant(
+    id: string,
+    data: { name: string; email: string; teamId: string; labId: string }
+  ): Promise<Participant | undefined>;
+  checkoutAllParticipants(): Promise<unknown>;
+  getAllTeams(): Promise<Team[]>;
+  getAllLabs(): Promise<Lab[]>;
+  getTeamsByLab(labId: string): Promise<Team[]>;
 
   // Scan Logs
   getScanLogs(): Promise<ScanLog[]>;
@@ -94,6 +107,22 @@ export interface IStorage {
   participantId: string,
   labId: string
   ): Promise<Participant | undefined>;
+
+  // Meal mode
+  getSystemModeConfig(): Promise<{
+    mode: "ATTENDANCE" | "MEAL";
+    selectedMealType: MealType | null;
+    allowedLabIds: string[];
+  }>;
+  updateSystemModeConfig(data: UpdateSystemModeInput): Promise<{
+    mode: "ATTENDANCE" | "MEAL";
+    selectedMealType: MealType | null;
+    allowedLabIds: string[];
+  }>;
+  hasConsumedMeal(participantId: string, mealType: MealType): Promise<boolean>;
+  consumeMeal(participantId: string, mealType: MealType): Promise<MealConsumption>;
+  resetParticipantMeals(participantId: string, mealType?: MealType): Promise<void>;
+  getMealAnalytics(mealType: MealType): Promise<{ total: number; taken: number; remaining: number }>;
 
 }
 
@@ -400,6 +429,108 @@ async getParticipantByQrHash(
 
   return updated;
 }
+
+  /* ================= MEAL MODE ================= */
+
+  async getSystemModeConfig() {
+    const [row] = await db.select().from(systemModeConfig).where(eq(systemModeConfig.id, "global"));
+    if (!row) {
+      const [created] = await db
+        .insert(systemModeConfig)
+        .values({
+          id: "global",
+          mode: "ATTENDANCE",
+          selectedMealType: null,
+          allowedLabIds: [],
+        })
+        .returning();
+      return {
+        mode: created.mode as "ATTENDANCE" | "MEAL",
+        selectedMealType: (created.selectedMealType as MealType | null) ?? null,
+        allowedLabIds: created.allowedLabIds ?? [],
+      };
+    }
+    return {
+      mode: row.mode as "ATTENDANCE" | "MEAL",
+      selectedMealType: (row.selectedMealType as MealType | null) ?? null,
+      allowedLabIds: row.allowedLabIds ?? [],
+    };
+  }
+
+  async updateSystemModeConfig(data: UpdateSystemModeInput) {
+    const current = await this.getSystemModeConfig();
+    const [updated] = await db
+      .insert(systemModeConfig)
+      .values({
+        id: "global",
+        mode: data.mode,
+        selectedMealType:
+          data.mode === "MEAL"
+            ? (data.selectedMealType ?? current.selectedMealType ?? null)
+            : null,
+        allowedLabIds:
+          data.mode === "MEAL" ? (data.allowedLabIds ?? current.allowedLabIds ?? []) : [],
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: systemModeConfig.id,
+        set: {
+          mode: data.mode,
+          selectedMealType:
+            data.mode === "MEAL"
+              ? (data.selectedMealType ?? current.selectedMealType ?? null)
+              : null,
+          allowedLabIds:
+            data.mode === "MEAL" ? (data.allowedLabIds ?? current.allowedLabIds ?? []) : [],
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return {
+      mode: updated.mode as "ATTENDANCE" | "MEAL",
+      selectedMealType: (updated.selectedMealType as MealType | null) ?? null,
+      allowedLabIds: updated.allowedLabIds ?? [],
+    };
+  }
+
+  async hasConsumedMeal(participantId: string, mealType: MealType) {
+    const [row] = await db
+      .select()
+      .from(mealConsumptions)
+      .where(and(eq(mealConsumptions.participantId, participantId), eq(mealConsumptions.mealType, mealType)));
+    return Boolean(row);
+  }
+
+  async consumeMeal(participantId: string, mealType: MealType) {
+    const [row] = await db
+      .insert(mealConsumptions)
+      .values({ participantId, mealType })
+      .returning();
+    return row;
+  }
+
+  async resetParticipantMeals(participantId: string, mealType?: MealType) {
+    if (mealType) {
+      await db
+        .delete(mealConsumptions)
+        .where(and(eq(mealConsumptions.participantId, participantId), eq(mealConsumptions.mealType, mealType)));
+      return;
+    }
+    await db.delete(mealConsumptions).where(eq(mealConsumptions.participantId, participantId));
+  }
+
+  async getMealAnalytics(mealType: MealType) {
+    const allParticipants = await db.select().from(participants);
+    const consumed = await db.select().from(mealConsumptions).where(eq(mealConsumptions.mealType, mealType));
+    const total = allParticipants.length;
+    const taken = consumed.length;
+    return {
+      total,
+      taken,
+      remaining: Math.max(total - taken, 0),
+    };
+  }
 
 
 
