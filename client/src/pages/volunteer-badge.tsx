@@ -4,30 +4,38 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Printer, QrCode, MapPin, Calendar, Hash } from "lucide-react";
-import type { ParticipantWithTeamAndLab } from "@shared/schema";
 
-export default function Badge() {
-  const [, params] = useRoute("/badge/:id");
-  const participantId = params?.id;
+type Volunteer = {
+  id: string;
+  email?: string;
+  firstName: string;
+  lastName?: string | null;
+  organization?: string | null;
+};
+
+export default function VolunteerBadge() {
+  const [, params] = useRoute("/volunteer-badge/:id");
+  const volunteerId = params?.id;
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const qrBlobUrlRef = useRef<string | null>(null);
 
-  const { data: participant, isLoading } = useQuery<ParticipantWithTeamAndLab>({
-    queryKey: ["/api/participants", participantId],
+  const { data: volunteer, isLoading } = useQuery<Volunteer | undefined>({
+    queryKey: ["/api/volunteers", volunteerId],
     queryFn: async () => {
-      const response = await fetch(`/api/participants`, { credentials: "include" });
-      if (!response.ok) throw new Error("Failed to fetch participants");
-      const participants = await response.json();
-      return participants.find((p: ParticipantWithTeamAndLab) => p.id === participantId);
+      const response = await fetch(`/api/volunteers`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch volunteers");
+      const volunteers = await response.json();
+      return volunteers.find((v: Volunteer) => v.id === volunteerId);
     },
-    enabled: !!participantId,
+    enabled: !!volunteerId,
   });
 
   useEffect(() => {
-    if (!participantId) return;
-    fetch(`/api/participants/${participantId}/qrcode`, { credentials: "include" })
+    if (!volunteerId) return;
+
+    fetch(`/api/volunteers/${volunteerId}/qrcode`, { credentials: "include" })
       .then((response) => {
-        if (!response.ok) throw new Error("Failed to load participant QR");
+        if (!response.ok) throw new Error("Failed to load volunteer QR");
         return response.blob();
       })
       .then((blob) => {
@@ -44,7 +52,7 @@ export default function Badge() {
         qrBlobUrlRef.current = null;
       }
     };
-  }, [participantId]);
+  }, [volunteerId]);
 
   if (isLoading) {
     return (
@@ -54,10 +62,10 @@ export default function Badge() {
     );
   }
 
-  if (!participant) {
+  if (!volunteer) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
-        <p className="text-muted-foreground">Participant not found</p>
+        <p className="text-muted-foreground">Volunteer not found</p>
         <Link href="/">
           <Button variant="outline">
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -67,6 +75,8 @@ export default function Badge() {
       </div>
     );
   }
+
+  const fullName = `${volunteer.firstName} ${volunteer.lastName || ""}`.trim();
 
   return (
     <div className="min-h-screen bg-gray-200 flex items-center justify-center p-8 print:p-0 print:bg-white">
@@ -123,7 +133,7 @@ export default function Badge() {
             <div className="absolute inset-0 bg-gradient-to-tr from-sky-500 via-purple-500 to-sky-500 rounded-2xl blur-sm opacity-60" />
             <div className="relative bg-white p-2.5 rounded-xl shadow-2xl">
               {qrCodeUrl ? (
-                <img src={qrCodeUrl} alt="QR" className="w-[140px] h-[140px] mix-blend-multiply" data-testid="badge-qr-code" />
+                <img src={qrCodeUrl} alt="QR" className="w-[140px] h-[140px] mix-blend-multiply" data-testid="volunteer-badge-qr-code" />
               ) : (
                 <div className="w-[140px] h-[140px] bg-gray-100 flex items-center justify-center">
                   <QrCode className="w-10 h-10 text-gray-400" />
@@ -140,18 +150,18 @@ export default function Badge() {
 
         <div className="relative z-10 m-3 mt-0 p-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
           <div className="text-center mb-4">
-            <h2 className="text-xl font-bold text-white uppercase tracking-wide truncate" data-testid="badge-name">
-              {participant.name}
+            <h2 className="text-xl font-bold text-white uppercase tracking-wide truncate" data-testid="volunteer-badge-name">
+              {fullName}
             </h2>
             <div className="flex justify-center gap-2 mt-2">
               <span className="px-3 py-1 rounded-full bg-gradient-to-r from-sky-500/20 to-blue-600/20 border border-sky-400/30 text-sky-200 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1">
-                <Hash size={10} /> {participant.team?.name || "No Team"}
+                <Hash size={10} /> {volunteer.organization || "Volunteer"}
               </span>
               <span className="px-3 py-1 rounded-full bg-slate-700/50 border border-slate-600 text-slate-300 text-[9px] font-bold uppercase tracking-wider">
-                Participant
+                Volunteer
               </span>
             </div>
-            <p className="text-[10px] text-slate-300 mt-2 truncate" data-testid="badge-email">{participant.email}</p>
+            {volunteer.email && <p className="text-[10px] text-slate-300 mt-2 truncate" data-testid="volunteer-badge-email">{volunteer.email}</p>}
           </div>
 
           <div className="w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent mb-3" />
@@ -164,7 +174,7 @@ export default function Badge() {
             </div>
             <div className="text-right">
               <div className="flex items-center gap-1.5 text-gray-300">
-                <span className="text-[9px] font-medium tracking-wide text-right w-24 truncate">{participant.lab?.name || "Main Lab"}</span>
+                <span className="text-[9px] font-medium tracking-wide text-right w-24 truncate">{volunteer.organization || "Event Team"}</span>
                 <MapPin size={11} className="text-sky-400" />
               </div>
             </div>
@@ -173,6 +183,19 @@ export default function Badge() {
 
         <div className="h-1.5 w-full bg-gradient-to-r from-sky-500 via-purple-500 to-sky-500" />
       </div>
+
+      <style>{`
+        @media print {
+          @page {
+            size: 3.5in 5.5in;
+            margin: 0;
+          }
+          body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { ThemeToggle } from "@/components/theme-toggle";
-import type { ParticipantWithTeam } from "@shared/schema";
+import type { ParticipantWithTeamAndLab, Lab } from "@shared/schema";
 
 interface Volunteer {
   id: string;
@@ -43,7 +43,13 @@ export default function Attendance() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: participants, isLoading: participantsLoading, refetch: refetchParticipants } = useQuery<ParticipantWithTeam[]>({
+  const { data: labs = [] } = useQuery<Lab[]>({
+  queryKey: ["/api/labs"],
+  });
+
+  
+
+  const { data: participants, isLoading: participantsLoading, refetch: refetchParticipants } = useQuery<ParticipantWithTeamAndLab[]>({
     queryKey: ["/api/participants"],
   });
 
@@ -65,6 +71,31 @@ export default function Attendance() {
       toast({ title: "Failed to checkout participant", description: error.message, variant: "destructive" });
     },
   });
+
+ const checkoutAllMutation = useMutation({
+  mutationFn: async () => {
+    return apiRequest("POST", "/api/participants/checkout-all");
+  },
+
+  onSuccess: async () => {
+    toast({ title: "All participants checked out!" });
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/participants"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] }),
+    ]);
+  },
+
+  onError: (error: any) => {
+    toast({
+      title: "Failed to checkout all",
+      description: error?.message || "Something went wrong",
+      variant: "destructive",
+    });
+  },
+});
+
+
 
   const checkoutVolunteerMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -127,50 +158,65 @@ export default function Attendance() {
   const notCheckedInVolunteers = volunteers?.filter(v => !v.isCheckedIn) || [];
 
   return (
-    <div className="min-h-screen bg-background grid-bg">
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8">
       {/* Header */}
       <header className="sticky top-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <Link href="/">
-                <Button variant="ghost" size="icon" data-testid="button-back">
-                  <ArrowLeft className="w-5 h-5" />
-                </Button>
-              </Link>
-              <div className="w-10 h-10 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30">
-                <QrCode className="w-6 h-6 text-primary" />
-              </div>
-              <span className="text-xl font-bold tracking-tight">
-                <span className="text-primary">Hack</span>Track
-              </span>
-              <Badge variant="outline" className="ml-2">Attendance</Badge>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <Button onClick={handleRefresh} variant="outline" size="sm" data-testid="button-refresh">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Refresh
-              </Button>
-              <ThemeToggle />
-              <Avatar className="w-8 h-8">
-                <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                  {user?.firstName?.[0] || "U"}
-                </AvatarFallback>
-              </Avatar>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => logout()}
-                disabled={isLoggingOut}
-                data-testid="button-logout"
-              >
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
+  <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div className="flex items-center justify-between h-14 sm:h-16">
+
+      {/* LEFT SECTION */}
+      <div className="flex items-center gap-2 min-w-0">
+
+        <Link href="/">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+        </Link>
+
+        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+          <QrCode className="w-5 h-5 text-primary" />
         </div>
-      </header>
+
+        <span className="text-lg sm:text-xl font-semibold truncate">
+          <span className="text-primary">Hack</span>Track
+        </span>
+
+        {/* Hide badge on mobile */}
+        <Badge
+          variant="outline"
+          className="hidden sm:inline-flex ml-2"
+        >
+          Attendance
+        </Badge>
+
+      </div>
+
+      {/* RIGHT SECTION */}
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+
+        {/* Refresh = icon only on mobile */}
+        <Button
+          onClick={handleRefresh}
+          variant="outline"
+          size="icon"
+          className="sm:px-3 sm:w-auto"
+        >
+          <RefreshCw className="w-4 h-4 sm:mr-2" />
+          <span className="hidden sm:inline">Refresh</span>
+        </Button>
+
+        <ThemeToggle />
+
+      </div>
+    </div>
+  </div>
+</header>
+
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -180,12 +226,12 @@ export default function Attendance() {
         </div>
 
         <Tabs defaultValue="participants" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
-            <TabsTrigger value="participants" data-testid="tab-participants">
+          <TabsList className="grid w-full grid-cols-2 sm:max-w-md">
+            <TabsTrigger value="participants" data-testid="tab-participants" className="flex-1 sm:flex-none">
               <Users className="w-4 h-4 mr-2" />
               Participants ({participants?.length || 0})
             </TabsTrigger>
-            <TabsTrigger value="volunteers" data-testid="tab-volunteers">
+            <TabsTrigger value="volunteers" data-testid="tab-volunteers" className="flex-1 sm:flex-none">
               <Users className="w-4 h-4 mr-2" />
               Volunteers ({volunteers?.length || 0})
             </TabsTrigger>
@@ -195,15 +241,50 @@ export default function Attendance() {
           <TabsContent value="participants" className="space-y-6 mt-6">
             {/* Checked In Participants */}
             <Card data-testid="card-checked-in-participants">
-              <CardHeader className="flex flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <UserCheck className="w-5 h-5 text-green-500" />
-                  <CardTitle className="text-lg font-semibold">Checked In</CardTitle>
-                </div>
-                <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-green-500" />
+                <CardTitle className="text-lg font-semibold">
+                  Checked In
+                </CardTitle>
+              </div>
+              <div className="flex items-center gap-3">
+                {isAdmin && checkedInParticipants.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/30 text-red-500 hover:bg-red-500/10"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Are you sure you want to checkout all ${checkedInParticipants.length} participants?`
+                        )
+                      ) {
+                        checkoutAllMutation.mutate();
+                      }
+                    }}
+                    disabled={checkoutAllMutation.isPending}
+                  >
+                    {checkoutAllMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <UserMinus className="w-4 h-4 mr-2" />
+                        Checkout All
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                <Badge
+                  variant="default"
+                  className="bg-green-500/10 text-green-500 border-green-500/20"
+                >
                   {checkedInParticipants.length}
                 </Badge>
-              </CardHeader>
+              </div>
+            </CardHeader>
+
               <CardContent>
                 {participantsLoading ? (
                   <div className="space-y-2">
@@ -220,7 +301,7 @@ export default function Attendance() {
                     {checkedInParticipants.map((participant) => (
                       <div
                         key={participant.id}
-                        className="flex items-center justify-between p-4 rounded-lg bg-green-500/5 border border-green-500/20"
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-green-500/5 border border-green-500/20"
                         data-testid={`participant-checked-in-${participant.id}`}
                       >
                         <div className="flex items-center gap-4">
@@ -231,9 +312,12 @@ export default function Attendance() {
                           </Avatar>
                           <div>
                             <p className="font-medium">{participant.name}</p>
-                            <p className="text-sm text-muted-foreground">{participant.email}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                              {participant.email}
+                            </p>
                           </div>
                           <Badge variant="outline">{participant.team?.name}</Badge>
+                          <Badge variant="secondary">{participant.lab?.name}</Badge>
                         </div>
                         {isAdmin && (
                           <Button
@@ -247,7 +331,7 @@ export default function Attendance() {
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
                               <>
-                                <UserMinus className="w-4 h-4 mr-2" />
+                                <UserMinus className="border-red-500/30 text-red-500 hover:bg-red-500/10" />
                                 Checkout
                               </>
                             )}
@@ -287,22 +371,35 @@ export default function Attendance() {
                     {notCheckedInParticipants.map((participant) => (
                       <div
                         key={participant.id}
-                        className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-card/50 border border-border/50"
                         data-testid={`participant-not-checked-in-${participant.id}`}
                       >
-                        <div className="flex items-center gap-4">
-                          <Avatar className="w-10 h-10">
-                            <AvatarFallback className="bg-muted text-muted-foreground">
-                              {participant.name[0].toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-medium">{participant.name}</p>
-                            <p className="text-sm text-muted-foreground">{participant.email}</p>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full">
+                          {/* Left: Avatar + Name */}
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Avatar className="w-10 h-10">
+                              <AvatarFallback>
+                                {participant.name[0].toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{participant.name}</p>
+                              <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                                {participant.email}
+                              </p>
+                            </div>
                           </div>
-                          <Badge variant="outline">{participant.team?.name}</Badge>
+
+                          {/* Right: Badges */}
+                          <div className="flex flex-wrap gap-2 sm:ml-auto">
+                            <Badge variant="outline">{participant.team?.name}</Badge>
+                            <Badge variant="secondary">{participant.lab?.name}</Badge>
+                          </div>
                         </div>
-                        <Badge variant="secondary">Pending</Badge>
+                        <div className="flex justify-start sm:justify-end">
+                          <Badge variant="secondary">Pending</Badge>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -407,10 +504,10 @@ export default function Attendance() {
                     {notCheckedInVolunteers.map((volunteer) => (
                       <div
                         key={volunteer.id}
-                        className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-card/50 border border-border/50"
                         data-testid={`volunteer-not-checked-in-${volunteer.id}`}
                       >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 flex-wrap">
                           <Avatar className="w-10 h-10">
                             <AvatarFallback className="bg-muted text-muted-foreground">
                               {volunteer.firstName[0].toUpperCase()}
@@ -469,5 +566,6 @@ export default function Attendance() {
         </Tabs>
       </main>
     </div>
+  </div>
   );
 }

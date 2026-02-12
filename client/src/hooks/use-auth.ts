@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
-interface User {
+export interface User {
   id: string;
   email: string;
   firstName: string;
@@ -32,11 +32,17 @@ async function fetchUser(): Promise<User | null> {
 
 export function useAuth() {
   const queryClient = useQueryClient();
-  const { data: user, isLoading, refetch } = useQuery<User | null>({
+
+  const {
+    data: user,
+    isLoading,
+    isFetched,
+    refetch,
+  } = useQuery<User | null>({
     queryKey: ["/api/auth/user"],
     queryFn: fetchUser,
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5, // 5 minutes (good for mobile networks)
   });
 
   const logoutMutation = useMutation({
@@ -44,16 +50,24 @@ export function useAuth() {
       await apiRequest("POST", "/api/auth/logout");
     },
     onSuccess: () => {
+      // Instantly update UI without full page reload
       queryClient.setQueryData(["/api/auth/user"], null);
-      window.location.href = "/";
     },
   });
 
   return {
+    // data
     user,
+
+    // loading & readiness
     isLoading,
-    isAuthenticated: !!user,
+    isAuthReady: isFetched, // 🔑 prevents mobile UI flicker
+
+    // auth state
+    isAuthenticated: Boolean(user),
     isAdmin: user?.role === "admin",
+
+    // actions
     logout: logoutMutation.mutate,
     isLoggingOut: logoutMutation.isPending,
     refetch,

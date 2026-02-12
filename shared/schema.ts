@@ -1,67 +1,119 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, uuid, integer } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  boolean,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export * from "./models/auth";
 
-// Teams table
+/* =======================
+   Teams
+======================= */
 export const teams = pgTable("teams", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
   description: text("description"),
+  isSystem: boolean("is_system").notNull().default(false), // ✅ ADD
   createdBy: varchar("created_by").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertTeamSchema = createInsertSchema(teams).omit({ 
-  id: true, 
-  createdAt: true 
+export const insertTeamSchema = createInsertSchema(teams).omit({
+  id: true,
+  createdAt: true,
 });
 export type InsertTeam = z.infer<typeof insertTeamSchema>;
 export type Team = typeof teams.$inferSelect;
 
-// Participants table - linked to teams
+/* =======================
+   Labs
+======================= */
+export const labs = pgTable("labs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  isSystem: boolean("is_system").notNull().default(false), // ✅ ADD
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLabSchema = createInsertSchema(labs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertLab = z.infer<typeof insertLabSchema>;
+export type Lab = typeof labs.$inferSelect;
+
+/* =======================
+   Participants
+======================= */
 export const participants = pgTable("participants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   email: text("email").notNull(),
   teamId: uuid("team_id").notNull().references(() => teams.id),
+  labId: uuid("lab_id").notNull().references(() => labs.id),
   isCheckedIn: boolean("is_checked_in").notNull().default(false),
   qrCodeHash: text("qr_code_hash").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertParticipantSchema = createInsertSchema(participants).omit({ 
-  id: true, 
-  isCheckedIn: true, 
-  createdAt: true 
+export const insertParticipantSchema = createInsertSchema(participants).omit({
+  id: true,
+  isCheckedIn: true,
+  createdAt: true,
 });
 export type InsertParticipant = z.infer<typeof insertParticipantSchema>;
 export type Participant = typeof participants.$inferSelect;
 
-// Extended participant with team info
-export type ParticipantWithTeam = Participant & {
+/* =======================
+   Extended Types
+======================= */
+export type ParticipantWithTeamAndLab = Participant & {
   team: Team;
+  lab: Lab;
 };
 
-// Scan logs table
-export const scanLogs = pgTable("scan_logs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  participantId: uuid("participant_id").notNull().references(() => participants.id),
-  scannedBy: varchar("scanned_by").notNull(),
-  scanType: text("scan_type").notNull().default("ENTRY"),
-  timestamp: timestamp("timestamp").defaultNow(),
+/* =======================
+   Scan Logs
+======================= */
+export const scanPreviewSchema = z.object({
+  participantId: z.string().uuid(),
+  name: z.string(),
+  email: z.string().email(),
+  teamName: z.string(),
+  labName: z.string(),
+  isCheckedIn: z.boolean(),
+   qr_hash: z.string(),
 });
 
-export const insertScanLogSchema = createInsertSchema(scanLogs).omit({ 
-  id: true, 
-  timestamp: true 
+export const scanLogs = pgTable("scan_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+
+  participantId: uuid("participant_id")
+    .references(() => participants.id, { onDelete: "cascade" }),
+
+  scannedBy: text("scanned_by").notNull(),   // ✅ TEXT
+
+  scanType: text("scan_type").notNull(),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+
+export const insertScanLogSchema = createInsertSchema(scanLogs).omit({
+  id: true,
+  createdAt: true,
 });
 export type InsertScanLog = z.infer<typeof insertScanLogSchema>;
 export type ScanLog = typeof scanLogs.$inferSelect;
 
-// Extended scan log with participant info
+export type ScanPreview = z.infer<typeof scanPreviewSchema>;
 export type ScanLogWithParticipant = ScanLog & {
-  participant: ParticipantWithTeam;
+  participant: ParticipantWithTeamAndLab;
 };

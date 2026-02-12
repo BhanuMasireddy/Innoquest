@@ -1,22 +1,25 @@
-import { 
+import {
   users,
-  teams, 
-  participants, 
+  teams,
+  labs,
+  participants,
   scanLogs,
-  type User, 
-  type InsertUser, 
+  type User,
+  type InsertUser,
   type Team,
   type InsertTeam,
-  type Participant, 
+  type Lab,
+  type InsertLab,
+  type Participant,
   type InsertParticipant,
-  type ParticipantWithTeam,
+  type ParticipantWithTeamAndLab,
   type ScanLog,
   type InsertScanLog,
   type ScanLogWithParticipant,
-  type ProfileUpdateInput
+  type ProfileUpdateInput,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql, ne, and } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 
@@ -26,33 +29,55 @@ export interface IStorage {
   // Users/Auth
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserById(id: string): Promise<User | undefined>;
-  createUser(email: string, password: string, firstName: string, lastName?: string, role?: string): Promise<User>;
+  createUser(
+    email: string,
+    password: string,
+    firstName: string,
+    lastName?: string,
+    role?: string
+  ): Promise<User>;
   validatePassword(user: User, password: string): Promise<boolean>;
   updateUserProfile(id: string, data: ProfileUpdateInput): Promise<User | undefined>;
-  
-  // Volunteer management
+
+  // Volunteers
   getVolunteers(): Promise<User[]>;
+  updateVolunteer(
+    id: string,
+    data: {
+      firstName: string;
+      lastName?: string | null;
+      email: string;
+      organization?: string | null;
+    }
+  ): Promise<User | undefined>;
   getVolunteerByQrHash(qrHash: string): Promise<User | undefined>;
   generateVolunteerQrHash(userId: string): Promise<string>;
   updateVolunteerCheckIn(id: string, isCheckedIn: boolean): Promise<User | undefined>;
+  deleteVolunteer(id: string): Promise<void>;
 
   // Teams
   getTeams(): Promise<Team[]>;
   getTeamById(id: string): Promise<Team | undefined>;
   createTeam(team: InsertTeam): Promise<Team>;
   deleteTeam(id: string): Promise<void>;
+  getTeamByName(name: string): Promise<Team | undefined>;
+
+
+  // Labs
+  getLabs(): Promise<Lab[]>;
+  createLab(data: InsertLab): Promise<Lab>;
+  deleteLab(id: string): Promise<void>;
+  getLabByName(name: string): Promise<Lab | undefined>;
 
   // Participants
-  getParticipants(): Promise<ParticipantWithTeam[]>;
+  getParticipants(): Promise<ParticipantWithTeamAndLab[]>;
   getParticipantsByTeam(teamId: string): Promise<Participant[]>;
   getParticipantById(id: string): Promise<Participant | undefined>;
-  getParticipantByQrHash(qrHash: string): Promise<ParticipantWithTeam | undefined>;
+  getParticipantByQrHash(qrHash: string): Promise<ParticipantWithTeamAndLab | undefined>;
   createParticipant(participant: InsertParticipant): Promise<Participant>;
   updateParticipantCheckIn(id: string, isCheckedIn: boolean): Promise<Participant | undefined>;
   deleteParticipant(id: string): Promise<void>;
-
-  // Volunteers
-  deleteVolunteer(id: string): Promise<void>;
+  getParticipantByEmail(email: string): Promise<Participant | undefined>;
 
   // Scan Logs
   getScanLogs(): Promise<ScanLog[]>;
@@ -62,39 +87,43 @@ export interface IStorage {
   // Stats
   getStats(): Promise<{ total: number; checkedIn: number; percentage: number; teamCount: number }>;
 
-  // Seed admin
+  // Seed
   seedAdminUser(): Promise<void>;
+
+  updateParticipantLab(
+  participantId: string,
+  labId: string
+  ): Promise<Participant | undefined>;
+
 }
 
 export class DatabaseStorage implements IStorage {
-  // Users/Auth
-  async getUserByEmail(email: string): Promise<User | undefined> {
+  /* ================= USERS ================= */
+
+  async getUserByEmail(email: string) {
     const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
   }
 
-  async getUserById(id: string): Promise<User | undefined> {
+  async getUserById(id: string) {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async createUser(email: string, password: string, firstName: string, lastName?: string, role: string = "volunteer"): Promise<User> {
+  async createUser(email: string, password: string, firstName: string, lastName?: string, role = "volunteer") {
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const [newUser] = await db.insert(users).values({
-      email,
-      passwordHash,
-      firstName,
-      lastName: lastName || null,
-      role,
-    }).returning();
-    return newUser;
+    const [user] = await db
+      .insert(users)
+      .values({ email, passwordHash, firstName, lastName: lastName || null, role })
+      .returning();
+    return user;
   }
 
-  async validatePassword(user: User, password: string): Promise<boolean> {
+  async validatePassword(user: User, password: string) {
     return bcrypt.compare(password, user.passwordHash);
   }
 
-  async updateUserProfile(id: string, data: ProfileUpdateInput): Promise<User | undefined> {
+  async updateUserProfile(id: string, data: ProfileUpdateInput) {
     const [updated] = await db
       .update(users)
       .set({
@@ -110,26 +139,53 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  // Volunteer management
-  async getVolunteers(): Promise<User[]> {
-    return await db.select().from(users).where(eq(users.role, "volunteer")).orderBy(desc(users.createdAt));
+  /* ================= VOLUNTEERS ================= */
+
+  async getVolunteers() {
+    return db.select().from(users).where(eq(users.role, "volunteer")).orderBy(desc(users.createdAt));
   }
 
-  async getVolunteerByQrHash(qrHash: string): Promise<User | undefined> {
-    const [volunteer] = await db.select().from(users).where(eq(users.qrCodeHash, qrHash));
+  async updateVolunteer(
+    id: string,
+    data: {
+      firstName: string;
+      lastName?: string | null;
+      email: string;
+      organization?: string | null;
+    }
+  ) {
+    const [updated] = await db
+      .update(users)
+      .set({
+        firstName: data.firstName,
+        lastName: data.lastName || null,
+        email: data.email,
+        organization: data.organization || null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(users.id, id), eq(users.role, "volunteer")))
+      .returning();
+    return updated;
+  }
+
+  async getVolunteerByQrHash(qrHash: string) {
+    const [volunteer] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.qrCodeHash, qrHash), eq(users.role, "volunteer")));
     return volunteer;
   }
 
-  async generateVolunteerQrHash(userId: string): Promise<string> {
+  async generateVolunteerQrHash(userId: string) {
     const qrHash = crypto.createHash("sha256").update(`volunteer-${userId}-${Date.now()}`).digest("hex");
     await db.update(users).set({ qrCodeHash: qrHash }).where(eq(users.id, userId));
     return qrHash;
   }
 
-  async updateVolunteerCheckIn(id: string, isCheckedIn: boolean): Promise<User | undefined> {
+  async updateVolunteerCheckIn(id: string, isCheckedIn: boolean) {
     const [updated] = await db
       .update(users)
-      .set({ 
+      .set({
         isCheckedIn: isCheckedIn ? "true" : "false",
         lastCheckIn: isCheckedIn ? new Date() : null,
       })
@@ -138,156 +194,283 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  // Teams
-  async getTeams(): Promise<Team[]> {
-    return await db.select().from(teams).orderBy(desc(teams.createdAt));
+  async deleteVolunteer(id: string) {
+    await db.delete(scanLogs).where(eq(scanLogs.scannedBy, id));
+    await db.delete(users).where(eq(users.id, id));
   }
 
-  async getTeamById(id: string): Promise<Team | undefined> {
+  /* ================= TEAMS ================= */
+
+  async getAllTeams() {
+  return db.select().from(teams);
+}
+
+
+  getTeams() {
+  return db.select().from(teams);
+}
+
+
+
+  async getTeamById(id: string) {
     const [team] = await db.select().from(teams).where(eq(teams.id, id));
     return team;
   }
 
-  async createTeam(team: InsertTeam): Promise<Team> {
+  async createTeam(team: InsertTeam) {
     const [newTeam] = await db.insert(teams).values(team).returning();
     return newTeam;
   }
 
-  async deleteTeam(id: string): Promise<void> {
+  async deleteTeam(id: string) {
     await db.delete(participants).where(eq(participants.teamId, id));
     await db.delete(teams).where(eq(teams.id, id));
   }
 
-  // Participants
-  async getParticipants(): Promise<ParticipantWithTeam[]> {
+  async getTeamByName(name: string) {
+    const [team] = await db.select().from(teams).where(eq(teams.name, name));
+    return team;
+  }
+
+  /* ================= LABS ================= */
+
+  async getAllLabs() {
+  return db.select().from(labs)
+  .where(eq(labs.isSystem, false))
+  .orderBy(desc(labs.createdAt));
+}
+
+  async getTeamsByLab(labId: string): Promise<Team[]> {
+  const result = await db
+    .selectDistinct({
+      id: teams.id,
+      name: teams.name,
+      description: teams.description,
+      createdBy: teams.createdBy,
+      isSystem: teams.isSystem,
+      createdAt: teams.createdAt,
+    })
+    .from(participants)
+    .innerJoin(teams, eq(participants.teamId, teams.id))
+    .where(eq(participants.labId, labId));
+
+  return result;
+}
+
+
+  async getLabs() {
+    return db.select().from(labs).orderBy(desc(labs.createdAt));
+  }
+
+  async createLab(data: InsertLab) {
+    const [lab] = await db.insert(labs).values(data).returning();
+    return lab;
+  }
+
+  async deleteLab(id: string): Promise<void> {
+    try {
+      await db.delete(participants).where(eq(participants.labId, id));
+      await db.delete(labs).where(eq(labs.id, id));
+    } catch (error) {
+      console.error("Database error during lab deletion:", error);
+      throw error;
+    }
+  }
+
+  async getLabByName(name: string) {
+    const [lab] = await db.select().from(labs).where(eq(labs.name, name));
+    return lab;
+  }
+
+  /* ================= PARTICIPANTS ================= */
+
+  async getParticipants(): Promise<ParticipantWithTeamAndLab[]> {
     const result = await db
       .select()
       .from(participants)
       .leftJoin(teams, eq(participants.teamId, teams.id))
+      .leftJoin(labs, eq(participants.labId, labs.id))
       .orderBy(desc(participants.createdAt));
 
     return result.map((row) => ({
       ...row.participants,
       team: row.teams!,
+      lab: row.labs!,
     }));
   }
 
-  async getParticipantsByTeam(teamId: string): Promise<Participant[]> {
-    return await db.select().from(participants).where(eq(participants.teamId, teamId));
+  async checkoutAllParticipants() {
+  return db
+    .update(participants)
+    .set({ isCheckedIn: false })
+    .where(eq(participants.isCheckedIn, true));
+}
+
+
+  async getParticipantsByTeam(teamId: string) {
+    return db.select().from(participants).where(eq(participants.teamId, teamId));
   }
 
-  async getParticipantById(id: string): Promise<Participant | undefined> {
-    const [participant] = await db.select().from(participants).where(eq(participants.id, id));
-    return participant;
+  async getParticipantById(id: string) {
+    const [p] = await db.select().from(participants).where(eq(participants.id, id));
+    return p;
   }
 
-  async getParticipantByQrHash(qrHash: string): Promise<ParticipantWithTeam | undefined> {
-    const result = await db
-      .select()
-      .from(participants)
-      .leftJoin(teams, eq(participants.teamId, teams.id))
-      .where(eq(participants.qrCodeHash, qrHash));
+async getParticipantByQrHash(
+  qrHash: string
+): Promise<ParticipantWithTeamAndLab | undefined> {
+  const result = await db
+    .select()
+    .from(participants)
+    .leftJoin(teams, eq(participants.teamId, teams.id))
+    .leftJoin(labs, eq(participants.labId, labs.id))
+    .where(eq(participants.qrCodeHash, qrHash));
 
-    if (result.length === 0) return undefined;
-    
-    return {
-      ...result[0].participants,
-      team: result[0].teams!,
-    };
+  if (!result.length) return undefined;
+
+  return {
+    ...result[0].participants,
+    team: result[0].teams!,
+    lab: result[0].labs!,
+  };
+}
+
+
+  async createParticipant(participant: InsertParticipant) {
+    const [p] = await db.insert(participants).values(participant).returning();
+    return p;
   }
 
-  async createParticipant(participant: InsertParticipant): Promise<Participant> {
-    const [newParticipant] = await db.insert(participants).values(participant).returning();
-    return newParticipant;
+  async updateParticipantCheckIn(id: string, isCheckedIn: boolean) {
+    const [p] = await db.update(participants).set({ isCheckedIn }).where(eq(participants.id, id)).returning();
+    return p;
   }
 
-  async updateParticipantCheckIn(id: string, isCheckedIn: boolean): Promise<Participant | undefined> {
-    const [updated] = await db
-      .update(participants)
-      .set({ isCheckedIn })
-      .where(eq(participants.id, id))
-      .returning();
-    return updated;
-  }
-
-  async deleteParticipant(id: string): Promise<void> {
+  async deleteParticipant(id: string) {
     await db.delete(scanLogs).where(eq(scanLogs.participantId, id));
     await db.delete(participants).where(eq(participants.id, id));
   }
 
-  // Volunteers
-  async deleteVolunteer(id: string): Promise<void> {
-    const user = await db.select().from(users).where(eq(users.id, id)).limit(1);
-    if (!user.length || user[0].role !== "volunteer") {
-      throw new Error("Volunteer not found");
-    }
-    // Delete any scan logs where this volunteer was the scanner
-    await db.delete(scanLogs).where(eq(scanLogs.scannedBy, id));
-    // Delete the user
-    await db.delete(users).where(eq(users.id, id));
+  async updateParticipantLab(participantId: string, labId: string) {
+    const [updated] = await db
+      .update(participants)
+      .set({ labId })
+      .where(eq(participants.id, participantId))
+      .returning();
+
+    return updated;
   }
 
-  // Scan Logs
-  async getScanLogs(): Promise<ScanLog[]> {
-    return await db.select().from(scanLogs).orderBy(desc(scanLogs.timestamp));
+  async getLastScanByQr(qrHash: string) {
+    const [row] = await db
+      .select()
+      .from(scanLogs)
+      .innerJoin(participants, eq(scanLogs.participantId, participants.id))
+      .where(eq(participants.qrCodeHash, qrHash))
+      .orderBy(desc(scanLogs.createdAt))
+      .limit(1);
+
+    return row?.scan_logs;
   }
 
-  async getRecentScansWithParticipants(limit: number = 10): Promise<ScanLogWithParticipant[]> {
-    const logs = await db
+  async getParticipantByEmail(email: string) {
+    const [p] = await db.select().from(participants).where(eq(participants.email, email));
+    return p;
+  }
+
+  async updateParticipant(
+  id: string,
+  data: {
+    name: string;
+    email: string;
+    teamId: string;
+    labId: string;
+  }
+) {
+  const [updated] = await db
+    .update(participants)
+    .set({
+      name: data.name,
+      email: data.email,
+      teamId: data.teamId,
+      labId: data.labId,
+    })
+    .where(eq(participants.id, id))
+    .returning();
+
+  return updated;
+}
+
+
+
+
+
+  /* ================= SCANS ================= */
+
+  async getScanLogs() {
+    return db.select().from(scanLogs).orderBy(desc(scanLogs.createdAt));
+  }
+
+  async getRecentScansWithParticipants(limit = 10): Promise<ScanLogWithParticipant[]> {
+    const rows = await db
       .select()
       .from(scanLogs)
       .leftJoin(participants, eq(scanLogs.participantId, participants.id))
       .leftJoin(teams, eq(participants.teamId, teams.id))
-      .orderBy(desc(scanLogs.timestamp))
+      .leftJoin(labs, eq(participants.labId, labs.id))
+      .orderBy(desc(scanLogs.createdAt))
       .limit(limit);
 
-    return logs.map((row) => ({
-      ...row.scan_logs,
+    return rows.map((r) => ({
+      ...r.scan_logs,
       participant: {
-        ...row.participants!,
-        team: row.teams!,
+        ...r.participants!,
+        team: r.teams!,
+        lab: r.labs!,
       },
     }));
   }
 
-  async createScanLog(scanLog: InsertScanLog): Promise<ScanLog> {
-    const [newLog] = await db.insert(scanLogs).values(scanLog).returning();
-    return newLog;
+  async createScanLog(scanLog: InsertScanLog) {
+    const [log] = await db.insert(scanLogs).values(scanLog).returning();
+    return log;
   }
 
-  // Stats
-  async getStats(): Promise<{ total: number; checkedIn: number; percentage: number; teamCount: number }> {
+
+  /* ================= STATS ================= */
+
+  async getStats() {
     const allParticipants = await db.select().from(participants);
     const allTeams = await db.select().from(teams);
     const total = allParticipants.length;
     const checkedIn = allParticipants.filter((p) => p.isCheckedIn).length;
-    const percentage = total > 0 ? Math.round((checkedIn / total) * 100) : 0;
-    const teamCount = allTeams.length;
-
-    return { total, checkedIn, percentage, teamCount };
+    const percentage = total ? Math.round((checkedIn / total) * 100) : 0;
+    return { total, checkedIn, percentage, teamCount: allTeams.length };
   }
 
-  // Seed admin user
-  async seedAdminUser(): Promise<void> {
-    const adminEmail = "bhanureddym7@gmail.com";
-    const existingAdmin = await this.getUserByEmail(adminEmail);
-    
-    if (!existingAdmin) {
-      await this.createUser(
-        adminEmail,
-        "admin123", // Default password - user should change this
-        "Bhanu",
-        "Reddy",
-        "admin"
-      );
-      console.log("Created admin user: bhanureddym7@gmail.com (password: admin123)");
+  /* ================= SEED ================= */
+
+  async seedAdminUser() {
+    const email = "bhanureddym7@gmail.com";
+    const exists = await this.getUserByEmail(email);
+    try{
+
+    if (!exists) {
+      await this.createUser(email, "admin123", "Bhanu", "Reddy", "admin");
+      console.log("Created admin user:", email);
     }
+  }
+  catch (e) {
+    console.error("DB offline — skipping admin seed");
+  }
   }
 }
 
 export const storage = new DatabaseStorage();
-
-// Helper function to generate QR code hash
+// Helper function to generate QR hash for participants
 export function generateQrHash(participantId: string, email: string): string {
-  return crypto.createHash("sha256").update(`${participantId}-${email}-${Date.now()}`).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(`${participantId}-${email}-${Date.now()}`)
+    .digest("hex");
 }

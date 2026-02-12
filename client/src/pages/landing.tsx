@@ -14,7 +14,7 @@ export default function Landing() {
                 <QrCode className="w-6 h-6 text-primary" />
               </div>
               <span className="text-xl font-bold tracking-tight">
-                <span className="text-primary">Hack</span>Track
+                <span className="text-primary">INNOQUEST</span> #4
               </span>
             </div>
             <div className="flex items-center gap-4">
@@ -194,7 +194,7 @@ export default function Landing() {
                 Ready to revolutionize your check-in?
               </h2>
               <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-                Join hundreds of hackathon organizers who trust HackTrack for their events.
+                Department of CSE, Anurag University.
               </p>
               <a href="/signup" data-testid="button-cta-bottom">
                 <Button size="lg" className="animate-pulse-glow mt-4">
@@ -212,10 +212,10 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <QrCode className="w-5 h-5 text-primary" />
-            <span className="font-semibold">HackTrack</span>
+            <span className="font-semibold">INNOQUEST #4</span>
           </div>
           <p className="text-sm text-muted-foreground">
-            Built with love for hackathon organizers everywhere
+            Department of CSE, Anurag University
           </p>
         </div>
       </footer>

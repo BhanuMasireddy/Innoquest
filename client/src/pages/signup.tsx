@@ -29,7 +29,7 @@ export default function SignupPage() {
     onSuccess: () => {
       toast({
         title: "Account created!",
-        description: "Welcome to HackTrack. You are now logged in.",
+        description: "Welcome to INNOQUEST #4. You are now logged in.",
       });
       setLocation("/");
     },
@@ -59,9 +59,9 @@ export default function SignupPage() {
             </div>
           </div>
           <div>
-            <CardTitle className="text-2xl font-bold">Join HackTrack</CardTitle>
+            <CardTitle className="text-2xl font-bold">Join INNOQUEST #4</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Create a volunteer account to start scanning
+              Department of CSE, Anurag University
             </CardDescription>
           </div>
         </CardHeader>

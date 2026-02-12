@@ -13,10 +13,11 @@ import Signup from "@/pages/signup";
 import Attendance from "@/pages/attendance";
 import Profile from "@/pages/profile";
 import Badge from "@/pages/badge";
+import VolunteerBadge from "@/pages/volunteer-badge";
 import { Loader2 } from "lucide-react";
 
 function Router() {
-  const { user, isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated } = useAuth();
 
   if (isLoading) {
     return (
@@ -36,14 +37,22 @@ function Router() {
           <Route path="/" component={Landing} />
           <Route path="/login" component={Login} />
           <Route path="/signup" component={Signup} />
+          <Route path="/scanner" component={Login} />
+          <Route path="/attendance" component={Login} />
+          <Route path="/profile" component={Login} />
+          <Route path="/badge/:id" component={Login} />
+          <Route path="/volunteer-badge/:id" component={Login} />
         </>
       ) : (
         <>
           <Route path="/" component={Dashboard} />
+          <Route path="/login" component={Dashboard} />
+          <Route path="/signup" component={Dashboard} />
           <Route path="/scanner" component={Scanner} />
           <Route path="/attendance" component={Attendance} />
           <Route path="/profile" component={Profile} />
           <Route path="/badge/:id" component={Badge} />
+          <Route path="/volunteer-badge/:id" component={VolunteerBadge} />
         </>
       )}
       <Route component={NotFound} />

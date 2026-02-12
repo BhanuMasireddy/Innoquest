@@ -61,7 +61,7 @@ export default function LoginPage() {
           <div>
             <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Sign in to your HackTrack account
+              Sign in to INNOQUEST #4 - Department of CSE, Anurag University
             </CardDescription>
           </div>
         </CardHeader>

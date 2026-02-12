@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import React,{ useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -30,7 +30,17 @@ interface ScanResult {
   participant?: Participant & { name?: string; teamName?: string };
   volunteer?: { firstName: string; lastName?: string };
   alreadyCheckedIn?: boolean;
+  scanType?: "ENTRY" | "EXIT";
 }
+
+type PendingScan = {
+  qrHash: string;
+  name: string;
+  scanType: "ENTRY" | "EXIT";
+};
+
+
+
 
 export default function Scanner() {
   const { user, logout, isLoggingOut } = useAuth();
@@ -42,12 +52,36 @@ export default function Scanner() {
   const [lastScan, setLastScan] = useState<ScanResult | null>(null);
   const [processingQr, setProcessingQr] = useState(false);
   
+  
+  const [pendingScan, setPendingScan] = useState<PendingScan | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const lastScannedRef = useRef<string>("");
   const cooldownRef = useRef<boolean>(false);
+  const processingRef = useRef<boolean>(false);
+  const confirmingRef = useRef<boolean>(false);
   const successAudioRef = useRef<HTMLAudioElement | null>(null);
   const errorAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  const resetScannerState = () => {
+    setProcessingQr(false);
+    processingRef.current = false;
+
+    setTimeout(() => {
+      cooldownRef.current = false;
+      if ((scannerRef.current as any)?.resume) {
+        (scannerRef.current as any).resume();
+      }
+    }, 500);
+  };
+  useEffect(() => {
+    processingRef.current = processingQr;
+  }, [processingQr]);
+
+  useEffect(() => {
+    confirmingRef.current = confirming;
+  }, [confirming]);
   // Initialize audio elements
   useEffect(() => {
     successAudioRef.current = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU" + 
@@ -61,167 +95,196 @@ export default function Scanner() {
 
   const playSound = useCallback((type: "success" | "error") => {
     if (!soundEnabled) return;
-    
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    if (type === "success") {
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-      oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
-    } else {
-      oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
-      oscillator.frequency.setValueAtTime(200, audioContext.currentTime + 0.1);
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.4);
+
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const audioContext = new AudioCtx();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      if (type === "success") {
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      } else {
+        oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(200, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.4);
+      }
+    } catch (error) {
+      console.warn("Scanner sound playback failed:", error);
     }
   }, [soundEnabled]);
 
   const scanMutation = useMutation({
-    mutationFn: async (qrHash: string) => {
-      const response = await apiRequest("POST", "/api/scan", {
-        qr_hash: qrHash,
-        scan_type: "ENTRY",
+  mutationFn: async (qrHash: string) => {
+    const res = await fetch("/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }, 
+      body: JSON.stringify({ qr_hash: qrHash }),
+    });
+
+    return (await res.json()) as ScanResult & {
+      scanType?: "ENTRY" | "EXIT";
+    };
+  },
+
+  onSuccess: (data) => {
+    setLastScan(data);
+
+    if (!data.success) {
+      playSound("error");
+      toast({
+        title: "Scan failed",
+        description: data.message,
+        variant: "destructive",
       });
-      return response.json() as Promise<ScanResult>;
-    },
-    onSuccess: (data) => {
-      setLastScan(data);
-      if (data.success) {
-        playSound("success");
-        const name = data.type === "volunteer" 
-          ? `${data.volunteer?.firstName} ${data.volunteer?.lastName || ""}`
-          : data.participant?.name;
-        toast({
-          title: "Check-in Successful!",
-          description: name,
-          className: "bg-green-500/10 border-green-500/30 text-green-500",
-        });
-      } else {
+      return;
+    }
+
+    playSound("success");
+
+    const name =
+      data.type === "volunteer"
+        ? `${data.volunteer?.firstName} ${data.volunteer?.lastName || ""}`
+        : data.participant?.name;
+
+    toast({
+      title:
+        data.scanType === "EXIT" ? "Checked out" : "Checked in",
+      description: name,
+      className:
+        data.scanType === "EXIT"
+          ? "bg-blue-500/10 border-blue-500/30 text-blue-500"
+          : "bg-green-500/10 border-green-500/30 text-green-500",
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/scans/recent"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
+  },
+
+  onSettled: () => {
+    setProcessingQr(false);
+    setTimeout(() => {
+      cooldownRef.current = false;
+    }, 500);
+  },
+});
+
+
+  
+const handleScan = useCallback((decodedText: string) => {
+  if (cooldownRef.current || processingRef.current || confirmingRef.current) return;
+
+  cooldownRef.current = true;
+  setProcessingQr(true);
+  processingRef.current = true;
+
+  fetch("/api/scan-preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qr_hash: decodedText }),
+  })
+    .then(res => res.json())
+    .then(async data => {
+      if (!data.success) {
         playSound("error");
         toast({
-          title: data.message?.includes("already") ? "Already Checked In" : "Check-in Failed",
+          title: "Scan failed",
           description: data.message,
           variant: "destructive",
         });
+        resetScannerState();
+        return;
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/scans/recent"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/participants"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/volunteers"] });
-    },
-    onError: async (error: any) => {
-      playSound("error");
-      let errorMessage = "Failed to process scan";
-      let alreadyCheckedIn = false;
-      
-      // Try to parse error response
-      if (error.response) {
-        try {
-          const errorData = await error.response.json();
-          errorMessage = errorData.message || errorMessage;
-          alreadyCheckedIn = errorData.message?.includes("already");
-        } catch (e) {
-          // Use default message
-        }
-      }
-      
-      setLastScan({
-        success: false,
-        message: errorMessage,
-        alreadyCheckedIn,
+
+      // 🔥 STOP CAMERA BEFORE SHOWING POPUP
+      //if (scannerRef.current) {
+        //await scannerRef.current.stop();
+        //scannerRef.current.clear();
+        //scannerRef.current = null;
+      //}
+
+      //setIsScanning(false);
+
+      setPendingScan({
+        qrHash: decodedText,
+        name: data.name,
+        scanType: data.scanType,
       });
-      toast({
-        title: alreadyCheckedIn ? "Already Checked In" : "Scan Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
+
+      setConfirming(true);
+      confirmingRef.current = true;
       setProcessingQr(false);
-      // Short cooldown for fast rescanning (500ms)
-      setTimeout(() => {
-        cooldownRef.current = false;
-      }, 500);
-    },
-  });
-
-  const handleScan = useCallback((decodedText: string) => {
-    if (cooldownRef.current || processingQr) return;
-    
-    // Allow rescan of same code after cooldown (for 1000+ participants handling)
-    // Only skip if same code scanned within processing window
-    if (decodedText === lastScannedRef.current && processingQr) return;
-    
-    cooldownRef.current = true;
-    lastScannedRef.current = decodedText;
-    setProcessingQr(true);
-    scanMutation.mutate(decodedText);
-  }, [scanMutation, processingQr]);
-
-  const startScanner = useCallback(async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-      } catch (e) {
-        // Ignore errors when stopping
-      }
-    }
-
-    try {
-      const scanner = new Html5Qrcode("qr-reader");
-      scannerRef.current = scanner;
-
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 15, // Faster frame rate for quicker scanning
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-        },
-        handleScan,
-        () => {} // Ignore errors (no QR found)
-      );
-      
-      setIsScanning(true);
-    } catch (err) {
-      console.error("Failed to start scanner:", err);
+      processingRef.current = false;
+    })
+    .catch(() => {
       toast({
-        title: "Camera Error",
-        description: "Could not access camera. Please ensure camera permissions are granted.",
+        title: "Scan failed",
+        description: "Could not process QR. Please try again.",
         variant: "destructive",
       });
-    }
-  }, [handleScan, toast]);
+      resetScannerState();
+    });
+}, [playSound, toast]);
 
-  const stopScanner = useCallback(async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current = null;
-      } catch (e) {
-        // Ignore errors when stopping
-      }
-    }
+
+  const startScanner = async () => {
+  if (scannerRef.current) return;
+
+  const scanner = new Html5Qrcode("qr-reader");
+  scannerRef.current = scanner;
+
+  try {
+    await scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 15,
+        qrbox: { width: 220, height: 220 },
+        aspectRatio: 1,
+      },
+      handleScan,
+      () => {}
+    );
+    setIsScanning(true);
+  } catch (error) {
+    scannerRef.current = null;
     setIsScanning(false);
-  }, []);
+    toast({
+      title: "Camera error",
+      description: "Unable to start scanner. Please allow camera access and try again.",
+      variant: "destructive",
+    });
+  }
+};
 
-  useEffect(() => {
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
-      }
-    };
-  }, []);
+const stopScanner = async () => {
+  if (!scannerRef.current) return;
+
+  try {
+    await scannerRef.current.stop();
+    scannerRef.current.clear();
+  } catch {
+    // no-op: scanner may already be stopped/disposed
+  } finally {
+    scannerRef.current = null;
+  }
+
+  setIsScanning(false);
+};
 
   return (
     <div className="min-h-screen bg-background grid-bg">
@@ -239,7 +302,10 @@ export default function Scanner() {
                 <div className="w-8 h-8 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30">
                   <QrCode className="w-4 h-4 text-primary" />
                 </div>
-                <span className="font-bold">Scanner</span>
+                <div className="flex flex-col leading-tight">
+                  <span className="font-bold">INNOQUEST #4</span>
+                  <span className="text-[10px] text-muted-foreground hidden sm:block">Department of CSE, Anurag University</span>
+                </div>
               </div>
               <Badge variant="outline" className="hidden sm:flex">Volunteer</Badge>
             </div>
@@ -258,12 +324,6 @@ export default function Scanner() {
                   <VolumeX className="w-5 h-5 text-muted-foreground" />
                 )}
               </Button>
-              <Avatar className="w-8 h-8">
-                <AvatarImage src={undefined} />
-                <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                  {user?.firstName?.[0] || user?.email?.[0]?.toUpperCase() || "V"}
-                </AvatarFallback>
-              </Avatar>
             </div>
           </div>
         </div>
@@ -374,11 +434,11 @@ export default function Scanner() {
                     }`}
                     data-testid="scan-result-status"
                   >
-                    {lastScan.success 
-                      ? "Check-in Successful!" 
-                      : lastScan.alreadyCheckedIn || lastScan.message?.includes("already")
-                      ? "Already Checked In"
-                      : "Check-in Failed"}
+                    {lastScan.success
+                    ? lastScan.scanType === "EXIT"
+                      ? "Checked Out Successfully!"
+                      : "Checked In Successfully!"
+                    : "Scan Failed"}
                   </p>
                   {lastScan.success && lastScan.type === "volunteer" && lastScan.volunteer ? (
                     <div className="mt-2">
@@ -408,6 +468,96 @@ export default function Scanner() {
             </CardContent>
           </Card>
         )}
+        
+        {/* Confirmation Modal */}
+{pendingScan && confirming && (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle className="text-lg">
+          {pendingScan.scanType === "EXIT"
+            ? "Confirm Check-out"
+            : "Confirm Check-in"}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Are you sure you want to
+          {pendingScan.scanType === "EXIT" ? " check out " : " check in "}
+          <span className="font-semibold">{pendingScan.name}</span>?
+        </p>
+
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              // 🔥 ADD THESE LINES (FIX 4)
+              resetScannerState();
+              setPendingScan(null);
+              setConfirming(false);
+              confirmingRef.current = false;
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              setProcessingQr(true);
+              processingRef.current = true;
+              fetch("/api/scan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  qr_hash: pendingScan.qrHash,
+                  scan_type: pendingScan.scanType,
+                }),
+              })
+                .then(res => res.json())
+                .then(data => {
+                  if (data.success) {
+                    setLastScan({
+                      ...data,
+                      scanType: pendingScan.scanType,
+                    });
+                    playSound("success");
+                  } else {
+                    playSound("error");
+                    toast({
+                      title:
+                        pendingScan.scanType === "EXIT"
+                          ? "Check-out failed"
+                          : "Check-in failed",
+                      description: data.message,
+                      variant: "destructive",
+                    });
+                  }
+                })
+                .catch(() => {
+                  playSound("error");
+                  toast({
+                    title:
+                      pendingScan.scanType === "EXIT"
+                        ? "Check-out failed"
+                        : "Check-in failed",
+                    description: "Network error while submitting scan.",
+                    variant: "destructive",
+                  });
+                })
+                .finally(() => {
+                  resetScannerState();
+                  setPendingScan(null);
+                  setConfirming(false);
+                  confirmingRef.current = false;
+                });
+            }}
+          >
+            {pendingScan.scanType === "EXIT" ? "Check Out" : "Check In"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+)}
 
         {/* Instructions */}
         <Card>
