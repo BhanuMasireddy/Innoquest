@@ -233,6 +233,9 @@ export async function registerRoutes(
       // Set session
       (req.session as any).userId = user.id;
       (req.session as any).role = user.role;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
 
       res.json({
         success: true,
@@ -284,6 +287,9 @@ export async function registerRoutes(
       // Set session
       (req.session as any).userId = user.id;
       (req.session as any).role = user.role;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
 
       res.json({
         success: true,
