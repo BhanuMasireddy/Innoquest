@@ -75,6 +75,15 @@ interface SystemModeConfig {
   mode: "ATTENDANCE" | "MEAL";
   selectedMealType: MealType | null;
   allowedLabIds: string[];
+  allowedScannerIds: string[];
+}
+
+interface ScannerUser {
+  id: string;
+  firstName: string;
+  lastName: string | null;
+  role: "admin" | "volunteer";
+  email: string;
 }
 
 interface MealAnalytics {
@@ -105,6 +114,9 @@ export default function Dashboard() {
   const [mealModeEnabled, setMealModeEnabled] = useState(false);
   const [selectedMealType, setSelectedMealType] = useState<MealType>("BREAKFAST");
   const [allowedMealLabIds, setAllowedMealLabIds] = useState<string[]>([]);
+  const [allowedScannerIds, setAllowedScannerIds] = useState<string[]>([]);
+  const [selectedAdminScannerId, setSelectedAdminScannerId] = useState<string>("__none__");
+  const [selectedVolunteerScannerId, setSelectedVolunteerScannerId] = useState<string>("__none__");
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<Stats>({
     queryKey: ["/api/stats"],
@@ -116,6 +128,11 @@ export default function Dashboard() {
 
   const { data: modeConfig } = useQuery<SystemModeConfig>({
     queryKey: ["/api/system/mode"],
+    enabled: isAdmin,
+  });
+
+  const { data: scannerUsers } = useQuery<ScannerUser[]>({
+    queryKey: ["/api/scanner-users"],
     enabled: isAdmin,
   });
 
@@ -192,6 +209,7 @@ export default function Dashboard() {
     setMealModeEnabled(modeConfig.mode === "MEAL");
     setSelectedMealType((modeConfig.selectedMealType as MealType | null) ?? "BREAKFAST");
     setAllowedMealLabIds(modeConfig.allowedLabIds ?? []);
+    setAllowedScannerIds(modeConfig.allowedScannerIds ?? []);
   }, [modeConfig]);
 
 
@@ -274,6 +292,7 @@ export default function Dashboard() {
               mode: "MEAL" as const,
               selectedMealType,
               allowedLabIds: allowedMealLabIds,
+              allowedScannerIds: allowedScannerIds,
             }
           : {
               mode: "ATTENDANCE" as const,
@@ -436,6 +455,30 @@ export default function Dashboard() {
     setAllowedMealLabIds((prev) =>
       checked ? Array.from(new Set([...prev, labId])) : prev.filter((id) => id !== labId)
     );
+  };
+
+  const scannerAdmins = useMemo(
+    () => (scannerUsers ?? []).filter((scannerUser) => scannerUser.role === "admin"),
+    [scannerUsers]
+  );
+
+  const scannerVolunteers = useMemo(
+    () => (scannerUsers ?? []).filter((scannerUser) => scannerUser.role === "volunteer"),
+    [scannerUsers]
+  );
+
+  const selectedScannerUsers = useMemo(
+    () => (scannerUsers ?? []).filter((scannerUser) => allowedScannerIds.includes(scannerUser.id)),
+    [scannerUsers, allowedScannerIds]
+  );
+
+  const addAllowedScanner = (scannerId: string) => {
+    if (!scannerId || scannerId === "__none__") return;
+    setAllowedScannerIds((prev) => (prev.includes(scannerId) ? prev : [...prev, scannerId]));
+  };
+
+  const removeAllowedScanner = (scannerId: string) => {
+    setAllowedScannerIds((prev) => prev.filter((id) => id !== scannerId));
   };
 
   // Filtered lists
@@ -736,38 +779,131 @@ export default function Dashboard() {
               </div>
 
               {mealModeEnabled && (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div className="space-y-3">
-                    <Label>Select Meal Type</Label>
-                    <Select value={selectedMealType} onValueChange={(v) => setSelectedMealType(v as MealType)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="BREAKFAST">Breakfast</SelectItem>
-                        <SelectItem value="LUNCH">Lunch</SelectItem>
-                        <SelectItem value="SNACKS">Snacks</SelectItem>
-                        <SelectItem value="DINNER">Dinner</SelectItem>
-                      </SelectContent>
-                    </Select>
+                <div className="space-y-6">
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div className="space-y-3">
+                      <Label>Select Meal Type</Label>
+                      <Select value={selectedMealType} onValueChange={(v) => setSelectedMealType(v as MealType)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="BREAKFAST">Breakfast</SelectItem>
+                          <SelectItem value="LUNCH">Lunch</SelectItem>
+                          <SelectItem value="SNACKS">Snacks</SelectItem>
+                          <SelectItem value="DINNER">Dinner</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label>Allowed Labs</Label>
+                      <div className="rounded-md border p-3 space-y-2 max-h-44 overflow-y-auto">
+                        {labs?.map((lab) => (
+                          <div key={lab.id} className="flex items-center gap-2">
+                            <Checkbox
+                              checked={allowedMealLabIds.includes(lab.id)}
+                              onCheckedChange={(checked) => toggleAllowedLab(lab.id, Boolean(checked))}
+                              id={`meal-lab-${lab.id}`}
+                            />
+                            <Label htmlFor={`meal-lab-${lab.id}`} className="cursor-pointer font-normal">
+                              {lab.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="space-y-3">
-                    <Label>Allowed Labs</Label>
-                    <div className="rounded-md border p-3 space-y-2 max-h-44 overflow-y-auto">
-                      {labs?.map((lab) => (
-                        <div key={lab.id} className="flex items-center gap-2">
-                          <Checkbox
-                            checked={allowedMealLabIds.includes(lab.id)}
-                            onCheckedChange={(checked) => toggleAllowedLab(lab.id, Boolean(checked))}
-                            id={`meal-lab-${lab.id}`}
-                          />
-                          <Label htmlFor={`meal-lab-${lab.id}`} className="cursor-pointer font-normal">
-                            {lab.name}
-                          </Label>
-                        </div>
-                      ))}
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Admin Scanner</Label>
+                      <div className="flex items-center gap-2">
+                        <Select value={selectedAdminScannerId} onValueChange={setSelectedAdminScannerId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select admin" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Select admin</SelectItem>
+                            {scannerAdmins.map((scannerUser) => (
+                              <SelectItem key={scannerUser.id} value={scannerUser.id}>
+                                {scannerUser.firstName} {scannerUser.lastName ?? ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            addAllowedScanner(selectedAdminScannerId);
+                            setSelectedAdminScannerId("__none__");
+                          }}
+                          disabled={selectedAdminScannerId === "__none__"}
+                        >
+                          Add
+                        </Button>
+                      </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label>Volunteer Scanner</Label>
+                      <div className="flex items-center gap-2">
+                        <Select value={selectedVolunteerScannerId} onValueChange={setSelectedVolunteerScannerId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select volunteer" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">Select volunteer</SelectItem>
+                            {scannerVolunteers.map((scannerUser) => (
+                              <SelectItem key={scannerUser.id} value={scannerUser.id}>
+                                {scannerUser.firstName} {scannerUser.lastName ?? ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            addAllowedScanner(selectedVolunteerScannerId);
+                            setSelectedVolunteerScannerId("__none__");
+                          }}
+                          disabled={selectedVolunteerScannerId === "__none__"}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Selected Meal Scanners</Label>
+                    {selectedScannerUsers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No scanner users selected yet.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedScannerUsers.map((scannerUser) => (
+                          <div key={scannerUser.id} className="flex items-center gap-2 rounded-md border px-3 py-1.5">
+                            <span className="text-sm">
+                              {scannerUser.firstName} {scannerUser.lastName ?? ""}
+                            </span>
+                            <Badge variant="outline" className="uppercase text-[10px] tracking-wide">
+                              {scannerUser.role}
+                            </Badge>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2"
+                              onClick={() => removeAllowedScanner(scannerUser.id)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -775,7 +911,10 @@ export default function Dashboard() {
               <div className="flex justify-end">
                 <Button
                   onClick={() => saveMealModeMutation.mutate()}
-                  disabled={saveMealModeMutation.isPending || (mealModeEnabled && allowedMealLabIds.length === 0)}
+                  disabled={
+                    saveMealModeMutation.isPending ||
+                    (mealModeEnabled && (allowedMealLabIds.length === 0 || allowedScannerIds.length === 0))
+                  }
                 >
                   {saveMealModeMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                   Save Mode Settings
@@ -1874,3 +2013,4 @@ function StatsCard({
     </Card>
   );
 }
+

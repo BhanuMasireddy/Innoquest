@@ -88,6 +88,7 @@ export const systemModeConfig = pgTable("system_mode_config", {
   mode: text("mode").notNull().default("ATTENDANCE"), // ATTENDANCE | MEAL
   selectedMealType: text("selected_meal_type"),
   allowedLabIds: text("allowed_lab_ids").array().notNull().default(sql`'{}'::text[]`),
+  allowedScannerIds: text("allowed_scanner_ids").array().notNull().default(sql`'{}'::text[]`),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -120,6 +121,7 @@ export const updateSystemModeSchema = z.object({
   mode: z.enum(["ATTENDANCE", "MEAL"]),
   selectedMealType: z.enum(mealTypes).nullable().optional(),
   allowedLabIds: z.array(z.string()).optional(),
+  allowedScannerIds: z.array(z.string()).optional(),
 });
 export type UpdateSystemModeInput = z.infer<typeof updateSystemModeSchema>;
 

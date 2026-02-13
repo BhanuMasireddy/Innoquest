@@ -24,7 +24,7 @@ import {
   type UpdateSystemModeInput,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 
@@ -46,6 +46,7 @@ export interface IStorage {
 
   // Volunteers
   getVolunteers(): Promise<User[]>;
+  getScannerUsers(): Promise<User[]>;
   updateVolunteer(
     id: string,
     data: {
@@ -113,11 +114,13 @@ export interface IStorage {
     mode: "ATTENDANCE" | "MEAL";
     selectedMealType: MealType | null;
     allowedLabIds: string[];
+    allowedScannerIds: string[];
   }>;
   updateSystemModeConfig(data: UpdateSystemModeInput): Promise<{
     mode: "ATTENDANCE" | "MEAL";
     selectedMealType: MealType | null;
     allowedLabIds: string[];
+    allowedScannerIds: string[];
   }>;
   hasConsumedMeal(participantId: string, mealType: MealType): Promise<boolean>;
   consumeMeal(participantId: string, mealType: MealType): Promise<MealConsumption>;
@@ -172,6 +175,14 @@ export class DatabaseStorage implements IStorage {
 
   async getVolunteers() {
     return db.select().from(users).where(eq(users.role, "volunteer")).orderBy(desc(users.createdAt));
+  }
+
+  async getScannerUsers() {
+    return db
+      .select()
+      .from(users)
+      .where(or(eq(users.role, "admin"), eq(users.role, "volunteer")))
+      .orderBy(desc(users.createdAt));
   }
 
   async updateVolunteer(
@@ -442,18 +453,21 @@ async getParticipantByQrHash(
           mode: "ATTENDANCE",
           selectedMealType: null,
           allowedLabIds: [],
+          allowedScannerIds: [],
         })
         .returning();
       return {
         mode: created.mode as "ATTENDANCE" | "MEAL",
         selectedMealType: (created.selectedMealType as MealType | null) ?? null,
         allowedLabIds: created.allowedLabIds ?? [],
+        allowedScannerIds: created.allowedScannerIds ?? [],
       };
     }
     return {
       mode: row.mode as "ATTENDANCE" | "MEAL",
       selectedMealType: (row.selectedMealType as MealType | null) ?? null,
       allowedLabIds: row.allowedLabIds ?? [],
+      allowedScannerIds: row.allowedScannerIds ?? [],
     };
   }
 
@@ -470,6 +484,8 @@ async getParticipantByQrHash(
             : null,
         allowedLabIds:
           data.mode === "MEAL" ? (data.allowedLabIds ?? current.allowedLabIds ?? []) : [],
+        allowedScannerIds:
+          data.mode === "MEAL" ? (data.allowedScannerIds ?? current.allowedScannerIds ?? []) : [],
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -482,6 +498,8 @@ async getParticipantByQrHash(
               : null,
           allowedLabIds:
             data.mode === "MEAL" ? (data.allowedLabIds ?? current.allowedLabIds ?? []) : [],
+          allowedScannerIds:
+            data.mode === "MEAL" ? (data.allowedScannerIds ?? current.allowedScannerIds ?? []) : [],
           updatedAt: new Date(),
         },
       })
@@ -491,6 +509,7 @@ async getParticipantByQrHash(
       mode: updated.mode as "ATTENDANCE" | "MEAL",
       selectedMealType: (updated.selectedMealType as MealType | null) ?? null,
       allowedLabIds: updated.allowedLabIds ?? [],
+      allowedScannerIds: updated.allowedScannerIds ?? [],
     };
   }
 

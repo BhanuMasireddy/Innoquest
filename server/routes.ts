@@ -426,6 +426,25 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/scanner-users - List admins + volunteers for meal scanner assignment (admin only)
+  app.get("/api/scanner-users", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const users = await storage.getScannerUsers();
+      res.json(
+        users.map((u) => ({
+          id: u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          email: u.email,
+        }))
+      );
+    } catch (error) {
+      console.error("Error fetching scanner users:", error);
+      res.status(500).json({ error: "Failed to fetch scanner users" });
+    }
+  });
+
   // POST /api/volunteers/:id/generate-qr - Generate QR code for volunteer (admin only)
   app.post("/api/volunteers/:id/generate-qr", isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -575,6 +594,9 @@ export async function registerRoutes(
       const payload = parseResult.data;
       if (payload.mode === "MEAL" && !payload.selectedMealType) {
         return res.status(400).json({ error: "selectedMealType is required in MEAL mode" });
+      }
+      if (payload.mode === "MEAL" && (!payload.allowedScannerIds || payload.allowedScannerIds.length === 0)) {
+        return res.status(400).json({ error: "At least one scanner user must be selected in MEAL mode" });
       }
 
       const updated = await storage.updateSystemModeConfig(payload);
@@ -1312,8 +1334,12 @@ app.post("/api/scan-preview", isAuthenticated, async (req, res) => {
 
     const { qr_hash } = parseResult.data;
     const modeConfig = await storage.getSystemModeConfig();
+    const scannerUserId = (req.session as any).userId as string | undefined;
+    const isMealScanner = Boolean(
+      scannerUserId && modeConfig.allowedScannerIds.includes(scannerUserId)
+    );
 
-    if (modeConfig.mode === "MEAL") {
+    if (modeConfig.mode === "MEAL" && isMealScanner) {
       const mealType = modeConfig.selectedMealType as MealType | null;
       if (!mealType) {
         return res.status(400).json({
@@ -1323,36 +1349,31 @@ app.post("/api/scan-preview", isAuthenticated, async (req, res) => {
       }
 
       const participant = await storage.getParticipantByQrHash(qr_hash);
-      if (!participant) {
-        return res.status(404).json({
-          success: false,
-          message: "QR not linked to a participant",
+      if (participant) {
+        if (!modeConfig.allowedLabIds.includes(participant.labId)) {
+          return res.status(403).json({
+            success: false,
+            message: "Lab not allowed",
+          });
+        }
+
+        const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
+        if (alreadyConsumed) {
+          return res.status(400).json({
+            success: false,
+            message: "Already consumed",
+          });
+        }
+
+        return res.json({
+          success: true,
+          mode: "MEAL",
+          mealType,
+          type: "participant",
+          name: participant.name,
+          scanType: "ENTRY",
         });
       }
-
-      if (!modeConfig.allowedLabIds.includes(participant.labId)) {
-        return res.status(403).json({
-          success: false,
-          message: "Lab not allowed",
-        });
-      }
-
-      const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
-      if (alreadyConsumed) {
-        return res.status(400).json({
-          success: false,
-          message: "Already consumed",
-        });
-      }
-
-      return res.json({
-        success: true,
-        mode: "MEAL",
-        mealType,
-        type: "participant",
-        name: participant.name,
-        scanType: "ENTRY",
-      });
     }
 
     // -------- Participant --------
@@ -1412,8 +1433,12 @@ app.post("/api/scan", isAuthenticated, async (req: any, res) => {
 
     const { qr_hash, scan_type } = parseResult.data;
     const modeConfig = await storage.getSystemModeConfig();
+    const scannerUserId = (req.session as any).userId as string | undefined;
+    const isMealScanner = Boolean(
+      scannerUserId && modeConfig.allowedScannerIds.includes(scannerUserId)
+    );
 
-    if (modeConfig.mode === "MEAL") {
+    if (modeConfig.mode === "MEAL" && isMealScanner) {
       const mealType = modeConfig.selectedMealType as MealType | null;
       if (!mealType) {
         return res.status(400).json({
@@ -1423,45 +1448,40 @@ app.post("/api/scan", isAuthenticated, async (req: any, res) => {
       }
 
       const participant = await storage.getParticipantByQrHash(qr_hash);
-      if (!participant) {
-        return res.status(404).json({
-          success: false,
-          message: "QR not recognized",
+      if (participant) {
+        if (!modeConfig.allowedLabIds.includes(participant.labId)) {
+          return res.status(403).json({
+            success: false,
+            message: "Lab not allowed",
+          });
+        }
+
+        const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
+        if (alreadyConsumed) {
+          return res.status(400).json({
+            success: false,
+            message: "Already consumed",
+          });
+        }
+
+        await storage.consumeMeal(participant.id, mealType);
+
+        return res.json({
+          success: true,
+          mode: "MEAL",
+          mealType,
+          type: "participant",
+          scanType: "ENTRY",
+          message: `${mealType} consumed for ${participant.name}`,
+          participant: {
+            id: participant.id,
+            name: participant.name,
+            team: participant.team,
+            lab: participant.lab,
+            isCheckedIn: participant.isCheckedIn,
+          },
         });
       }
-
-      if (!modeConfig.allowedLabIds.includes(participant.labId)) {
-        return res.status(403).json({
-          success: false,
-          message: "Lab not allowed",
-        });
-      }
-
-      const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
-      if (alreadyConsumed) {
-        return res.status(400).json({
-          success: false,
-          message: "Already consumed",
-        });
-      }
-
-      await storage.consumeMeal(participant.id, mealType);
-
-      return res.json({
-        success: true,
-        mode: "MEAL",
-        mealType,
-        type: "participant",
-        scanType: "ENTRY",
-        message: `${mealType} consumed for ${participant.name}`,
-        participant: {
-          id: participant.id,
-          name: participant.name,
-          team: participant.team,
-          lab: participant.lab,
-          isCheckedIn: participant.isCheckedIn,
-        },
-      });
     }
 
     // ================= PARTICIPANT =================
