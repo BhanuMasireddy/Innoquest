@@ -24,7 +24,7 @@ import {
   type UpdateSystemModeInput,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, or } from "drizzle-orm";
+import { eq, desc, and, or, sql } from "drizzle-orm";
 import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 
@@ -130,6 +130,30 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private mealModeSchemaEnsured = false;
+
+  private async ensureMealModeSchema() {
+    if (this.mealModeSchemaEnsured) return;
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS system_mode_config (
+        id text PRIMARY KEY DEFAULT 'global',
+        mode text NOT NULL DEFAULT 'ATTENDANCE',
+        selected_meal_type text,
+        allowed_lab_ids text[] NOT NULL DEFAULT '{}'::text[],
+        allowed_scanner_ids text[] NOT NULL DEFAULT '{}'::text[],
+        updated_at timestamp DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      ALTER TABLE system_mode_config
+      ADD COLUMN IF NOT EXISTS allowed_scanner_ids text[] NOT NULL DEFAULT '{}'::text[]
+    `);
+
+    this.mealModeSchemaEnsured = true;
+  }
+
   /* ================= USERS ================= */
 
   async getUserByEmail(email: string) {
@@ -444,6 +468,8 @@ async getParticipantByQrHash(
   /* ================= MEAL MODE ================= */
 
   async getSystemModeConfig() {
+    await this.ensureMealModeSchema();
+
     const [row] = await db.select().from(systemModeConfig).where(eq(systemModeConfig.id, "global"));
     if (!row) {
       const [created] = await db
@@ -472,6 +498,8 @@ async getParticipantByQrHash(
   }
 
   async updateSystemModeConfig(data: UpdateSystemModeInput) {
+    await this.ensureMealModeSchema();
+
     const current = await this.getSystemModeConfig();
     const [updated] = await db
       .insert(systemModeConfig)
