@@ -158,12 +158,12 @@ export default function Attendance() {
   const notCheckedInVolunteers = volunteers?.filter(v => !v.isCheckedIn) || [];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="app-page min-h-screen bg-background">
       <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8">
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-  <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-    <div className="flex items-center justify-between h-14 sm:h-16">
+      <header className="sticky top-0 z-50 pt-3">
+  <div className="mx-auto w-full max-w-7xl px-2 sm:px-4 lg:px-6">
+    <div className="flex items-center justify-between h-16 rounded-2xl border border-border/60 bg-slate-950/70 px-3 sm:px-4 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
 
       {/* LEFT SECTION */}
       <div className="flex items-center gap-2 min-w-0">
@@ -172,13 +172,13 @@ export default function Attendance() {
           <Button
             variant="ghost"
             size="icon"
-            className="shrink-0"
+            className="shrink-0 rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5"
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
         </Link>
 
-        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/40 shrink-0 shadow-sm">
           <QrCode className="w-5 h-5 text-primary" />
         </div>
 
@@ -189,7 +189,7 @@ export default function Attendance() {
         {/* Hide badge on mobile */}
         <Badge
           variant="outline"
-          className="hidden sm:inline-flex ml-2"
+          className="hidden sm:inline-flex ml-2 border-border/70 bg-background/20 backdrop-blur-sm"
         >
           Attendance
         </Badge>
@@ -197,14 +197,14 @@ export default function Attendance() {
       </div>
 
       {/* RIGHT SECTION */}
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
 
         {/* Refresh = icon only on mobile */}
         <Button
           onClick={handleRefresh}
           variant="outline"
           size="icon"
-          className="sm:px-3 sm:w-auto"
+          className="sm:px-3 sm:w-auto rounded-xl border-border/70 bg-white/5 hover:bg-white/10"
         >
           <RefreshCw className="w-4 h-4 sm:mr-2" />
           <span className="hidden sm:inline">Refresh</span>

@@ -48,11 +48,14 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="app-page min-h-screen bg-background flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-accent/5" />
       
       <Card className="w-full max-w-md relative z-10 border-border/50 bg-card/80 backdrop-blur-sm" data-testid="card-signup">
         <CardHeader className="space-y-4 text-center">
+          <div className="hero-photo h-32 bg-gradient-to-br from-primary/25 via-background to-accent/20 flex items-center justify-center">
+            <QrCode className="w-10 h-10 text-primary/75" />
+          </div>
           <div className="flex justify-center">
             <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center">
               <QrCode className="w-8 h-8 text-primary" />

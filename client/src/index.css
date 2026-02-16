@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -360,4 +362,119 @@
   .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
     inset: -1px;
   }
+}
+
+:root {
+  --background: 200 45% 97%;
+  --foreground: 214 35% 13%;
+  --border: 204 35% 82%;
+  --card: 0 0% 100%;
+  --card-foreground: 214 35% 13%;
+  --card-border: 204 35% 84%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 214 35% 13%;
+  --popover-border: 204 35% 84%;
+  --primary: 191 100% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 37 87% 92%;
+  --secondary-foreground: 26 40% 24%;
+  --muted: 199 32% 93%;
+  --muted-foreground: 215 20% 40%;
+  --accent: 15 95% 60%;
+  --accent-foreground: 0 0% 100%;
+  --ring: 191 100% 32%;
+  --chart-1: 191 100% 32%;
+  --chart-2: 15 95% 60%;
+  --chart-3: 142 66% 40%;
+  --chart-4: 222 85% 60%;
+  --chart-5: 35 95% 56%;
+  --font-sans: "Sora", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", monospace;
+}
+
+.dark {
+  --background: 212 36% 7%;
+  --foreground: 198 32% 94%;
+  --border: 210 32% 23%;
+  --card: 214 30% 10%;
+  --card-foreground: 198 32% 94%;
+  --card-border: 210 30% 22%;
+  --popover: 214 28% 11%;
+  --popover-foreground: 198 32% 94%;
+  --popover-border: 210 28% 22%;
+  --primary: 188 95% 52%;
+  --primary-foreground: 214 50% 10%;
+  --secondary: 27 33% 18%;
+  --secondary-foreground: 35 85% 89%;
+  --muted: 212 25% 16%;
+  --muted-foreground: 200 12% 68%;
+  --accent: 17 95% 63%;
+  --accent-foreground: 16 44% 10%;
+  --ring: 188 95% 52%;
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% 10%, hsl(var(--primary) / 0.12), transparent 30%),
+    radial-gradient(circle at 85% 20%, hsl(var(--accent) / 0.15), transparent 35%),
+    radial-gradient(circle at 30% 95%, hsl(var(--primary) / 0.1), transparent 45%),
+    hsl(var(--background));
+  min-height: 100vh;
+}
+
+.app-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    linear-gradient(to bottom, hsl(var(--background) / 0.35), hsl(var(--background) / 0.92)),
+    url("/images/event-collage.svg");
+  background-size: auto, cover;
+  background-position: center, center;
+  opacity: 0.78;
+}
+
+.app-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 48px,
+      hsl(var(--border) / 0.08) 48px,
+      hsl(var(--border) / 0.08) 49px
+    );
+}
+
+.shadcn-card {
+  backdrop-filter: blur(10px);
+  background: linear-gradient(145deg, hsl(var(--card) / 0.9), hsl(var(--card) / 0.72));
+  border-color: hsl(var(--card-border) / 0.75);
+  box-shadow:
+    0 14px 40px hsl(210 60% 8% / 0.12),
+    inset 0 1px 0 hsl(0 0% 100% / 0.25);
+}
+
+.hero-photo {
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.45);
+  box-shadow: 0 20px 45px hsl(210 65% 7% / 0.25);
+}
+
+.hero-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }

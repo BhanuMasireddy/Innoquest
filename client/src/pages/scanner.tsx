@@ -302,19 +302,19 @@ const stopScanner = async () => {
 };
 
   return (
-    <div className="min-h-screen bg-background grid-bg">
+    <div className="app-page min-h-screen bg-background grid-bg">
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+      <header className="sticky top-0 z-50 pt-3">
+        <div className="max-w-3xl mx-auto px-2 sm:px-4 lg:px-6">
+          <div className="flex items-center justify-between h-16 rounded-2xl border border-border/60 bg-slate-950/70 px-3 sm:px-4 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
             <div className="flex items-center gap-3">
               <Link href="/">
-                <Button variant="ghost" size="icon" data-testid="button-back">
+                <Button variant="ghost" size="icon" className="rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5" data-testid="button-back">
                   <ArrowLeft className="w-5 h-5" />
                 </Button>
               </Link>
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30">
+                <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/40 shadow-sm">
                   <QrCode className="w-4 h-4 text-primary" />
                 </div>
                 <div className="flex flex-col leading-tight">
@@ -322,14 +322,15 @@ const stopScanner = async () => {
                   <span className="text-[10px] text-muted-foreground hidden sm:block">Department of CSE, Anurag University</span>
                 </div>
               </div>
-              <Badge variant="outline" className="hidden sm:flex">Volunteer</Badge>
+              <Badge variant="outline" className="hidden sm:flex border-border/70 bg-background/20 backdrop-blur-sm">Volunteer</Badge>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <ThemeToggle />
               <Button
                 variant="ghost"
                 size="icon"
+                className="rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5"
                 onClick={() => setSoundEnabled(!soundEnabled)}
                 data-testid="button-sound-toggle"
               >
@@ -346,6 +347,10 @@ const stopScanner = async () => {
 
       {/* Main Content */}
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <div className="hero-photo h-44 bg-gradient-to-br from-primary/20 via-background to-accent/20 flex items-center justify-center">
+          <QrCode className="w-16 h-16 text-primary/70" />
+        </div>
+
         {/* Scanner Card */}
         <Card className="overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-4">

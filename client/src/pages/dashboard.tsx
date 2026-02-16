@@ -635,16 +635,17 @@ export default function Dashboard() {
     }
   };
   return (
-    <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 overflow-x-hidden">
+    <div className="app-page min-h-screen bg-background overflow-x-hidden">
+      <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
       {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-  <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
-    <div className="flex items-center justify-between h-14 sm:h-16">
+      <header className="sticky top-0 z-50 pt-3">
+  <div className="mx-auto w-full max-w-6xl px-2 sm:px-4 lg:px-6">
+    <div className="flex items-center justify-between h-16 rounded-2xl border border-border/60 bg-slate-950/70 px-3 sm:px-4 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
 
       {/* LEFT SIDE */}
       <div className="flex items-center gap-2 min-w-0">
 
-        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/40 shrink-0 shadow-sm">
           <QrCode className="w-5 h-5 text-primary" />
         </div>
 
@@ -654,7 +655,7 @@ export default function Dashboard() {
 
         <Badge
           variant="outline"
-          className="hidden sm:inline-flex ml-2"
+          className="hidden sm:inline-flex ml-2 border-border/70 bg-background/20 backdrop-blur-sm"
         >
           {isAdmin ? "Admin" : "Volunteer"}
         </Badge>
@@ -662,7 +663,7 @@ export default function Dashboard() {
       </div>
 
       {/* RIGHT SIDE */}
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
 
         <ThemeToggle />
 
@@ -671,7 +672,7 @@ export default function Dashboard() {
           <Button
             variant="ghost"
             size="icon"
-            className="sm:w-auto sm:px-3"
+            className="sm:w-auto sm:px-3 rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5"
           >
             <ClipboardList className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Attendance</span>
@@ -683,7 +684,7 @@ export default function Dashboard() {
           <Button
             variant="outline"
             size="icon"
-            className="sm:w-auto sm:px-3"
+            className="sm:w-auto sm:px-3 rounded-xl border-border/70 bg-white/5 hover:bg-white/10"
           >
             <ScanLine className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Scanner</span>
@@ -692,7 +693,7 @@ export default function Dashboard() {
 
         {/* Profile */}
         <Link href="/profile">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" className="rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5">
             <UserCircle className="w-5 h-5" />
           </Button>
         </Link>
@@ -1967,6 +1968,7 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
       </main>
+      </div>
     </div>
   );
 }
