@@ -39,6 +39,12 @@ export default function Profile() {
     organization: user?.organization || "",
   });
 
+  const [passwordData, setPasswordData] = useState({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+
   // Sync form data when user data loads
   useEffect(() => {
     if (user) {
@@ -67,6 +73,29 @@ export default function Profile() {
     },
   });
 
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: typeof passwordData) => {
+      const response = await apiRequest("PUT", "/api/auth/change-password", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Password changed successfully!" });
+      setPasswordData({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to change password",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+    
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     updateProfileMutation.mutate(formData);
@@ -75,6 +104,21 @@ export default function Profile() {
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
+
+  const handlePasswordChange = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      toast({
+        title: "Passwords do not match",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    changePasswordMutation.mutate(passwordData);
+  };
+
 
   return (
     <div className="app-page min-h-screen bg-background grid-bg">
@@ -92,7 +136,7 @@ export default function Profile() {
                 <QrCode className="w-6 h-6 text-primary" />
               </div>
               <span className="text-xl font-bold tracking-tight">
-                <span className="text-primary">Hack</span>Track
+                <span className="text-primary">INNOQUEST</span> #4
               </span>
               <Badge variant="outline" className="ml-2 border-border/70 bg-background/20 backdrop-blur-sm">Profile</Badge>
             </div>
@@ -283,6 +327,63 @@ export default function Profile() {
                 <Badge variant="secondary">Not Checked In</Badge>
               )}
             </div>
+          </CardContent>
+        </Card>
+        {/* Change Password */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Change Password</CardTitle>
+            <CardDescription>
+              Enter your current password and a new password.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent>
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Current Password</Label>
+                <Input
+                  type="password"
+                  value={passwordData.currentPassword}
+                  onChange={(e) =>
+                    setPasswordData({ ...passwordData, currentPassword: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>New Password</Label>
+                <Input
+                  type="password"
+                  value={passwordData.newPassword}
+                  onChange={(e) =>
+                    setPasswordData({ ...passwordData, newPassword: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Confirm New Password</Label>
+                <Input
+                  type="password"
+                  value={passwordData.confirmPassword}
+                  onChange={(e) =>
+                    setPasswordData({ ...passwordData, confirmPassword: e.target.value })
+                  }
+                  required
+                />
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={changePasswordMutation.isPending}
+              >
+                {changePasswordMutation.isPending ? "Updating..." : "Update Password"}
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </main>

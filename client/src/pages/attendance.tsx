@@ -183,7 +183,7 @@ export default function Attendance() {
         </div>
 
         <span className="text-lg sm:text-xl font-semibold truncate">
-          <span className="text-primary">Hack</span>Track
+          <span className="text-primary">INNOQUEST</span> #4
         </span>
 
         {/* Hide badge on mobile */}

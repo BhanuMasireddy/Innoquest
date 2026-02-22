@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { type Server } from "http";
 import { storage, generateQrHash } from "./storage";
 import { z } from "zod";
+import bcrypt from "bcrypt";
 import {
   signupSchema,
   loginSchema,
@@ -9,12 +10,15 @@ import {
   updateSystemModeSchema,
   mealTypes,
   type MealType,
+  users,
 } from "@shared/schema";
 import QRCode from "qrcode";
 import { parseParticipantExcel } from "./excel"; // Ensure you created this file
 import multer from "multer";
 import * as XLSX from "xlsx";
 import PDFDocument from 'pdfkit';
+import { eq } from "drizzle-orm/sql/expressions/conditions";
+import { db } from "./db";
 
 
 // Define User type
@@ -322,14 +326,53 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/auth/logout - Logout
-  app.post("/api/auth/logout", (req, res) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ error: "Failed to logout" });
+  app.put("/api/auth/change-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+
+      if (!req.user?.id) {
+        return res.status(401).json({ message: "Unauthorized" });
       }
-      res.json({ success: true });
-    });
+
+      const result = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, req.user.id))
+        .limit(1);
+
+      const user = result[0];
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const isValid = await bcrypt.compare(
+        currentPassword,
+        user.passwordHash
+      );
+
+      if (!isValid) {
+        return res.status(400).json({
+          message: "Current password is incorrect",
+        });
+      }
+
+      const newHashedPassword = await bcrypt.hash(newPassword, 10);
+
+      await db
+        .update(users)
+        .set({
+          passwordHash: newHashedPassword,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+
+      res.json({ message: "Password updated successfully" });
+
+    } catch (error) {
+      console.error("CHANGE PASSWORD ERROR:", error);
+      res.status(500).json({ message: "Server error" });
+    }
   });
 
   // GET /api/auth/user - Get current user
