@@ -163,7 +163,7 @@ export default function Attendance() {
       {/* Header */}
       <header className="sticky top-0 z-50 pt-3">
   <div className="mx-auto w-full max-w-7xl px-2 sm:px-4 lg:px-6">
-    <div className="flex items-center justify-between h-16 rounded-2xl border border-border/60 bg-slate-950/70 px-3 sm:px-4 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+    <div className="flex items-center justify-between h-16 rounded-2xl border border-border/70 bg-card/80 text-foreground px-3 sm:px-4 shadow-[0_10px_28px_hsl(var(--foreground)/0.12)] backdrop-blur-xl">
 
       {/* LEFT SECTION */}
       <div className="flex items-center gap-2 min-w-0">
@@ -172,7 +172,7 @@ export default function Attendance() {
           <Button
             variant="ghost"
             size="icon"
-            className="shrink-0 rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5"
+            className="shrink-0 rounded-xl border border-transparent hover:border-border/80 hover:bg-muted/60"
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
@@ -189,7 +189,7 @@ export default function Attendance() {
         {/* Hide badge on mobile */}
         <Badge
           variant="outline"
-          className="hidden sm:inline-flex ml-2 border-border/70 bg-background/20 backdrop-blur-sm"
+          className="hidden sm:inline-flex ml-2 border-border/70 bg-card/60 backdrop-blur-sm"
         >
           Attendance
         </Badge>
@@ -204,7 +204,7 @@ export default function Attendance() {
           onClick={handleRefresh}
           variant="outline"
           size="icon"
-          className="sm:px-3 sm:w-auto rounded-xl border-border/70 bg-white/5 hover:bg-white/10"
+          className="sm:px-3 sm:w-auto rounded-xl border-border/70 bg-card/60 hover:bg-muted/70"
         >
           <RefreshCw className="w-4 h-4 sm:mr-2" />
           <span className="hidden sm:inline">Refresh</span>
@@ -226,12 +226,12 @@ export default function Attendance() {
         </div>
 
         <Tabs defaultValue="participants" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:max-w-md">
-            <TabsTrigger value="participants" data-testid="tab-participants" className="flex-1 sm:flex-none">
+          <TabsList className="grid w-full grid-cols-2 h-auto sm:max-w-md">
+            <TabsTrigger value="participants" data-testid="tab-participants" className="flex-1 sm:flex-none text-xs sm:text-sm">
               <Users className="w-4 h-4 mr-2" />
               Participants ({participants?.length || 0})
             </TabsTrigger>
-            <TabsTrigger value="volunteers" data-testid="tab-volunteers" className="flex-1 sm:flex-none">
+            <TabsTrigger value="volunteers" data-testid="tab-volunteers" className="flex-1 sm:flex-none text-xs sm:text-sm">
               <Users className="w-4 h-4 mr-2" />
               Volunteers ({volunteers?.length || 0})
             </TabsTrigger>
@@ -241,14 +241,14 @@ export default function Attendance() {
           <TabsContent value="participants" className="space-y-6 mt-6">
             {/* Checked In Participants */}
             <Card data-testid="card-checked-in-participants">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-green-500" />
                 <CardTitle className="text-lg font-semibold">
                   Checked In
                 </CardTitle>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
                 {isAdmin && checkedInParticipants.length > 0 && (
                   <Button
                     variant="outline"
@@ -301,21 +301,23 @@ export default function Attendance() {
                     {checkedInParticipants.map((participant) => (
                       <div
                         key={participant.id}
-                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-green-500/5 border border-green-500/20"
+                        className="flex flex-col gap-3 p-4 rounded-lg bg-green-500/5 border border-green-500/20"
                         data-testid={`participant-checked-in-${participant.id}`}
                       >
-                        <div className="flex items-center gap-4">
-                          <Avatar className="w-10 h-10">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <Avatar className="w-10 h-10 shrink-0">
                             <AvatarFallback className="bg-green-500/20 text-green-500">
                               {participant.name[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
-                            <p className="font-medium">{participant.name}</p>
-                            <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                          <div className="min-w-0">
+                            <p className="font-medium break-words">{participant.name}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground break-all">
                               {participant.email}
                             </p>
                           </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
                           <Badge variant="outline">{participant.team?.name}</Badge>
                           <Badge variant="secondary">{participant.lab?.name}</Badge>
                         </div>
@@ -323,6 +325,7 @@ export default function Attendance() {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="w-full sm:w-auto sm:self-start"
                             onClick={() => checkoutParticipantMutation.mutate(participant.id)}
                             disabled={checkoutParticipantMutation.isPending}
                             data-testid={`button-checkout-participant-${participant.id}`}
@@ -331,7 +334,7 @@ export default function Attendance() {
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
                               <>
-                                <UserMinus className="border-red-500/30 text-red-500 hover:bg-red-500/10" />
+                                <UserMinus className="w-4 h-4 mr-2" />
                                 Checkout
                               </>
                             )}
@@ -346,7 +349,7 @@ export default function Attendance() {
 
             {/* Not Checked In Participants */}
             <Card data-testid="card-not-checked-in-participants">
-              <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <UserX className="w-5 h-5 text-yellow-500" />
                   <CardTitle className="text-lg font-semibold">Not Checked In</CardTitle>
@@ -412,7 +415,7 @@ export default function Attendance() {
           <TabsContent value="volunteers" className="space-y-6 mt-6">
             {/* Checked In Volunteers */}
             <Card data-testid="card-checked-in-volunteers">
-              <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <UserCheck className="w-5 h-5 text-green-500" />
                   <CardTitle className="text-lg font-semibold">Volunteers Checked In</CardTitle>
@@ -436,27 +439,30 @@ export default function Attendance() {
                     {checkedInVolunteers.map((volunteer) => (
                       <div
                         key={volunteer.id}
-                        className="flex items-center justify-between p-4 rounded-lg bg-green-500/5 border border-green-500/20"
+                        className="flex flex-col gap-3 p-4 rounded-lg bg-green-500/5 border border-green-500/20"
                         data-testid={`volunteer-checked-in-${volunteer.id}`}
                       >
-                        <div className="flex items-center gap-4">
-                          <Avatar className="w-10 h-10">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <Avatar className="w-10 h-10 shrink-0">
                             <AvatarFallback className="bg-green-500/20 text-green-500">
                               {volunteer.firstName[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
-                            <p className="font-medium">{volunteer.firstName} {volunteer.lastName}</p>
-                            <p className="text-sm text-muted-foreground">{volunteer.email}</p>
+                          <div className="min-w-0">
+                            <p className="font-medium break-words">{volunteer.firstName} {volunteer.lastName}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground break-all">{volunteer.email}</p>
                           </div>
-                          {volunteer.organization && (
-                            <Badge variant="outline">{volunteer.organization}</Badge>
-                          )}
                         </div>
+                        {volunteer.organization && (
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="outline">{volunteer.organization}</Badge>
+                          </div>
+                        )}
                         {isAdmin && (
                           <Button
                             variant="outline"
                             size="sm"
+                            className="w-full sm:w-auto sm:self-start"
                             onClick={() => checkoutVolunteerMutation.mutate(volunteer.id)}
                             disabled={checkoutVolunteerMutation.isPending}
                             data-testid={`button-checkout-volunteer-${volunteer.id}`}
@@ -480,7 +486,7 @@ export default function Attendance() {
 
             {/* Not Checked In Volunteers */}
             <Card data-testid="card-not-checked-in-volunteers">
-              <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <UserX className="w-5 h-5 text-yellow-500" />
                   <CardTitle className="text-lg font-semibold">Volunteers Not Checked In</CardTitle>
@@ -507,27 +513,28 @@ export default function Attendance() {
                         className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-card/50 border border-border/50"
                         data-testid={`volunteer-not-checked-in-${volunteer.id}`}
                       >
-                        <div className="flex items-center gap-4 flex-wrap">
+                        <div className="flex items-center gap-4 flex-wrap min-w-0">
                           <Avatar className="w-10 h-10">
                             <AvatarFallback className="bg-muted text-muted-foreground">
                               {volunteer.firstName[0].toUpperCase()}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
-                            <p className="font-medium">{volunteer.firstName} {volunteer.lastName}</p>
-                            <p className="text-sm text-muted-foreground">{volunteer.email}</p>
+                          <div className="min-w-0">
+                            <p className="font-medium break-words">{volunteer.firstName} {volunteer.lastName}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground break-all">{volunteer.email}</p>
                           </div>
                           {volunteer.organization && (
                             <Badge variant="outline">{volunteer.organization}</Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                           {isAdmin && (
                             <>
                               {!volunteer.qrCodeHash ? (
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  className="w-full sm:w-auto"
                                   onClick={() => generateVolunteerQrMutation.mutate(volunteer.id)}
                                   disabled={generateVolunteerQrMutation.isPending}
                                   data-testid={`button-generate-qr-${volunteer.id}`}
@@ -545,6 +552,7 @@ export default function Attendance() {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  className="w-full sm:w-auto"
                                   onClick={() => downloadVolunteerQr(volunteer.id, volunteer.firstName)}
                                   data-testid={`button-download-qr-${volunteer.id}`}
                                 >

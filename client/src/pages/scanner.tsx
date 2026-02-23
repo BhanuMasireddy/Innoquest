@@ -306,10 +306,10 @@ const stopScanner = async () => {
       {/* Header */}
       <header className="sticky top-0 z-50 pt-3">
         <div className="max-w-3xl mx-auto px-2 sm:px-4 lg:px-6">
-          <div className="flex items-center justify-between h-16 rounded-2xl border border-border/60 bg-slate-950/70 px-3 sm:px-4 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+          <div className="flex items-center justify-between h-16 rounded-2xl border border-border/70 bg-card/80 text-foreground px-3 sm:px-4 shadow-[0_10px_28px_hsl(var(--foreground)/0.12)] backdrop-blur-xl">
             <div className="flex items-center gap-3">
               <Link href="/">
-                <Button variant="ghost" size="icon" className="rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5" data-testid="button-back">
+                <Button variant="ghost" size="icon" className="rounded-xl border border-transparent hover:border-border/80 hover:bg-muted/60" data-testid="button-back">
                   <ArrowLeft className="w-5 h-5" />
                 </Button>
               </Link>
@@ -322,7 +322,7 @@ const stopScanner = async () => {
                   <span className="text-[10px] text-muted-foreground hidden sm:block">Department of CSE, Anurag University</span>
                 </div>
               </div>
-              <Badge variant="outline" className="hidden sm:flex border-border/70 bg-background/20 backdrop-blur-sm">Volunteer</Badge>
+              <Badge variant="outline" className="hidden sm:flex border-border/70 bg-card/60 backdrop-blur-sm">Volunteer</Badge>
             </div>
             
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -330,7 +330,7 @@ const stopScanner = async () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5"
+                className="rounded-xl border border-transparent hover:border-border/80 hover:bg-muted/60"
                 onClick={() => setSoundEnabled(!soundEnabled)}
                 data-testid="button-sound-toggle"
               >

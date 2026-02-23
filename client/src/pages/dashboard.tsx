@@ -640,7 +640,7 @@ export default function Dashboard() {
       {/* Header */}
       <header className="sticky top-0 z-50 pt-3">
   <div className="mx-auto w-full max-w-6xl px-2 sm:px-4 lg:px-6">
-    <div className="flex items-center justify-between h-16 rounded-2xl border border-border/60 bg-slate-950/70 px-3 sm:px-4 shadow-[0_14px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+    <div className="flex items-center justify-between h-16 rounded-2xl border border-border/70 bg-card/80 text-foreground px-3 sm:px-4 shadow-[0_10px_28px_hsl(var(--foreground)/0.12)] backdrop-blur-xl">
 
       {/* LEFT SIDE */}
       <div className="flex items-center gap-2 min-w-0">
@@ -655,7 +655,7 @@ export default function Dashboard() {
 
         <Badge
           variant="outline"
-          className="hidden sm:inline-flex ml-2 border-border/70 bg-background/20 backdrop-blur-sm"
+          className="hidden sm:inline-flex ml-2 border-border/70 bg-card/60 backdrop-blur-sm"
         >
           {isAdmin ? "Admin" : "Volunteer"}
         </Badge>
@@ -672,7 +672,7 @@ export default function Dashboard() {
           <Button
             variant="ghost"
             size="icon"
-            className="sm:w-auto sm:px-3 rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5"
+            className="sm:w-auto sm:px-3 rounded-xl border border-transparent hover:border-border/80 hover:bg-muted/60"
           >
             <ClipboardList className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Attendance</span>
@@ -684,7 +684,7 @@ export default function Dashboard() {
           <Button
             variant="outline"
             size="icon"
-            className="sm:w-auto sm:px-3 rounded-xl border-border/70 bg-white/5 hover:bg-white/10"
+            className="sm:w-auto sm:px-3 rounded-xl border-border/70 bg-card/60 hover:bg-muted/70"
           >
             <ScanLine className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Scanner</span>
@@ -693,7 +693,7 @@ export default function Dashboard() {
 
         {/* Profile */}
         <Link href="/profile">
-          <Button variant="ghost" size="icon" className="rounded-xl border border-transparent hover:border-border/60 hover:bg-white/5">
+          <Button variant="ghost" size="icon" className="rounded-xl border border-transparent hover:border-border/80 hover:bg-muted/60">
             <UserCircle className="w-5 h-5" />
           </Button>
         </Link>
@@ -1411,19 +1411,21 @@ export default function Dashboard() {
                 {filteredParticipants.map((participant) => (
                   <div
                     key={participant.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
+                    className="flex flex-col gap-3 p-4 rounded-lg bg-card/50 border border-border/50"
                     data-testid={`participant-row-${participant.id}`}
                   >
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <Avatar className="w-10 h-10">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <Avatar className="w-10 h-10 shrink-0">
                         <AvatarFallback className="bg-primary/20 text-primary">
                           {participant.name[0].toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
-                        <p className="font-medium" data-testid={`participant-name-${participant.id}`}>{participant.name}</p>
-                        <p className="text-sm text-muted-foreground">{participant.email}</p>
+                      <div className="min-w-0">
+                        <p className="font-medium break-words" data-testid={`participant-name-${participant.id}`}>{participant.name}</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground break-all">{participant.email}</p>
                       </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{participant.team?.name || "No Team"}</Badge>
                       {participant.isCheckedIn ? (
                         <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
@@ -1434,16 +1436,16 @@ export default function Dashboard() {
                       )}
                     </div>
                     {isAdmin && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                         <Link href={`/badge/${participant.id}`}>
-                          <Button variant="outline" size="icon" data-testid={`button-print-badge-${participant.id}`}>
+                          <Button variant="outline" size="icon" className="shrink-0" data-testid={`button-print-badge-${participant.id}`}>
                             <Printer className="w-4 h-4" />
                           </Button>
                         </Link>
                         <Button
                           variant="outline"
                           size="icon"
-                          className="hover:text-blue-500"
+                          className="hover:text-blue-500 shrink-0"
                           onClick={() => {
                             setEditingParticipant(participant);
                             setEditData({
@@ -1573,6 +1575,7 @@ export default function Dashboard() {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full sm:w-auto"
                           onClick={() => downloadQrCode(participant.id, participant.name)}
                           data-testid={`button-download-qr-${participant.id}`}
                         >
@@ -1582,6 +1585,7 @@ export default function Dashboard() {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full sm:w-auto"
                           onClick={() => resetParticipantMealsMutation.mutate(participant.id)}
                           disabled={resetParticipantMealsMutation.isPending}
                           data-testid={`button-reset-meals-${participant.id}`}
@@ -1594,6 +1598,7 @@ export default function Dashboard() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="shrink-0"
                               data-testid={`button-delete-participant-${participant.id}`}
                             >
                               <Trash2 className="w-4 h-4 text-destructive" />
@@ -1746,9 +1751,9 @@ export default function Dashboard() {
         {isAdmin && (
           <Card data-testid="card-volunteers">
             <CardHeader className="flex flex-col gap-4">
-              <div className="flex flex-row items-center justify-between gap-4">
+              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                 <CardTitle className="text-lg font-semibold">Volunteers</CardTitle>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1795,26 +1800,28 @@ export default function Dashboard() {
                   {filteredVolunteers.map((volunteer) => (
                     <div
                       key={volunteer.id}
-                      className="flex items-center justify-between p-4 rounded-lg bg-card/50 border border-border/50"
+                      className="flex flex-col gap-3 p-4 rounded-lg bg-card/50 border border-border/50"
                       data-testid={`volunteer-row-${volunteer.id}`}
                     >
-                      <div className="flex items-center gap-4 flex-wrap">
-                        <Avatar className="w-10 h-10">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <Avatar className="w-10 h-10 shrink-0">
                           <AvatarFallback className="bg-accent/20 text-accent">
                             {volunteer.firstName[0].toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-medium" data-testid={`volunteer-name-${volunteer.id}`}>
                             {volunteer.firstName} {volunteer.lastName || ""}
                           </p>
                           {volunteer.email && (
-                            <p className="text-sm text-muted-foreground">{volunteer.email}</p>
-                          )}
-                          {volunteer.organization && (
-                            <p className="text-xs text-muted-foreground">{volunteer.organization}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground break-all">{volunteer.email}</p>
                           )}
                         </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {volunteer.organization && (
+                          <Badge variant="outline">{volunteer.organization}</Badge>
+                        )}
                         {volunteer.isCheckedIn ? (
                           <Badge variant="default" className="bg-green-500/10 text-green-500 border-green-500/20">
                             Checked In
@@ -1832,16 +1839,16 @@ export default function Dashboard() {
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                         <Link href={`/volunteer-badge/${volunteer.id}`}>
-                          <Button variant="outline" size="icon" data-testid={`button-print-volunteer-badge-${volunteer.id}`}>
+                          <Button variant="outline" size="icon" className="shrink-0" data-testid={`button-print-volunteer-badge-${volunteer.id}`}>
                             <Printer className="w-4 h-4" />
                           </Button>
                         </Link>
                         <Button
                           variant="outline"
                           size="icon"
-                          className="hover:text-blue-500"
+                          className="hover:text-blue-500 shrink-0"
                           onClick={() => {
                             setEditingVolunteer(volunteer);
                             setVolunteerEditData({
@@ -1858,6 +1865,7 @@ export default function Dashboard() {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full sm:w-auto"
                           onClick={() => handleVolunteerQrAction(volunteer)}
                           disabled={generateVolunteerQrMutation.isPending}
                           data-testid={`button-download-volunteer-qr-${volunteer.id}`}
@@ -1870,6 +1878,7 @@ export default function Dashboard() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="shrink-0"
                               data-testid={`button-delete-volunteer-${volunteer.id}`}
                             >
                               <Trash2 className="w-4 h-4 text-destructive" />
