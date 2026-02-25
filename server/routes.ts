@@ -1,0 +1,1757 @@
+import type { Express, Request, Response, NextFunction } from "express";
+import { type Server } from "http";
+import { storage, generateQrHash } from "./storage";
+import { z } from "zod";
+import bcrypt from "bcrypt";
+import {
+  signupSchema,
+  loginSchema,
+  profileUpdateSchema,
+  updateSystemModeSchema,
+  mealTypes,
+  type MealType,
+  users,
+} from "@shared/schema";
+import QRCode from "qrcode";
+import { parseParticipantExcel } from "./excel"; // Ensure you created this file
+import multer from "multer";
+import * as XLSX from "xlsx";
+import PDFDocument from 'pdfkit';
+import { eq } from "drizzle-orm/sql/expressions/conditions";
+import { db } from "./db";
+
+
+// Define User type
+type User = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string | null;
+  role: string;
+  phone?: string;
+  bio?: string;
+  organization?: string;
+  qrCodeHash?: string;
+  isCheckedIn?: boolean | string;
+  lastCheckIn?: string;
+  createdAt?: string;
+};
+const upload = multer();
+// Extend Express Request type to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: User;
+    }
+  }
+}
+
+interface MulterRequest extends Request {
+  file?: Express.Multer.File;
+}
+
+// seconds
+  const SCAN_COOLDOWN_SECONDS = 10;
+const ID_CARD_WIDTH = 3.5 * 72;
+const ID_CARD_HEIGHT = 5.5 * 72;
+
+function drawPremiumCard(
+  doc: PDFKit.PDFDocument,
+  params: {
+    name: string;
+    subtitle?: string;
+    teamOrOrg: string;
+    role: "Participant" | "Volunteer";
+    location: string;
+    qrBuffer: Buffer;
+  }
+) {
+  const { name, subtitle, teamOrOrg, role, location, qrBuffer } = params;
+  const w = ID_CARD_WIDTH;
+  const h = ID_CARD_HEIGHT;
+
+  doc.rect(0, 0, w, h).fill("#030712");
+  doc.circle(w * 0.2, h * 0.1, 80).fillOpacity(0.18).fill("#1d4ed8").fillOpacity(1);
+  doc.circle(w * 0.85, h * 0.92, 65).fillOpacity(0.14).fill("#0284c7").fillOpacity(1);
+
+  doc.fillColor("#7dd3fc").font("Helvetica").fontSize(7).text("DEPT OF CSE", 0, 22, {
+    align: "center",
+    characterSpacing: 2,
+  });
+  doc.fillColor("#e2f3ff").font("Helvetica-BoldOblique").fontSize(26).text("INNOQUEST", 0, 35, { align: "center" });
+  doc.fillColor("#94a3b8").font("Helvetica").fontSize(7).text("EDITION", 0, 65, { align: "center" });
+  doc.fillColor("#7dd3fc").font("Helvetica-Bold").fontSize(8).text("#04", 0, 74, { align: "center" });
+
+  const qrX = (w - 110) / 2;
+  const qrY = 104;
+  doc.roundedRect(qrX - 4, qrY - 4, 118, 118, 8).fill("#2a3f5f");
+  doc.roundedRect(qrX, qrY, 110, 110, 8).fill("#ffffff");
+  doc.image(qrBuffer, qrX + 8, qrY + 8, { fit: [94, 94] });
+  doc.fillColor("#a5f3fc").font("Helvetica").fontSize(7).text("SCAN FOR ENTRY", 0, 222, {
+    align: "center",
+    characterSpacing: 2,
+  });
+
+  const infoX = 10;
+  const infoY = 240;
+  const infoW = w - 20;
+  const infoH = 132;
+  doc.roundedRect(infoX, infoY, infoW, infoH, 10).fillOpacity(0.15).fill("#1f2937").fillOpacity(1);
+  doc.roundedRect(infoX, infoY, infoW, infoH, 10).lineWidth(1).strokeOpacity(0.35).stroke("#dbeafe").strokeOpacity(1);
+
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(15).text(name.toUpperCase(), infoX + 8, infoY + 12, {
+    align: "center",
+    width: infoW - 16,
+  });
+  if (subtitle) {
+    doc.fillColor("#cbd5e1").font("Helvetica").fontSize(8).text(subtitle, infoX + 8, infoY + 32, {
+      align: "center",
+      width: infoW - 16,
+      ellipsis: true,
+    });
+  }
+
+  doc.roundedRect(infoX + 16, infoY + 50, 94, 18, 9).fillOpacity(0.3).fill("#0369a1").fillOpacity(1);
+  doc.fillColor("#e0f2fe").font("Helvetica-Bold").fontSize(7).text(teamOrOrg.toUpperCase(), infoX + 18, infoY + 56, {
+    width: 90,
+    align: "center",
+    ellipsis: true,
+  });
+  doc.roundedRect(infoX + 116, infoY + 50, 68, 18, 9).fill("#334155");
+  doc.fillColor("#e2e8f0").font("Helvetica-Bold").fontSize(7).text(role.toUpperCase(), infoX + 118, infoY + 56, {
+    width: 64,
+    align: "center",
+  });
+
+  doc.moveTo(infoX + 12, infoY + 82).lineTo(infoX + infoW - 12, infoY + 82).lineWidth(1).strokeOpacity(0.35).stroke("#e2e8f0").strokeOpacity(1);
+  doc.fillColor("#cbd5e1").font("Helvetica").fontSize(7).text("27 FEB - 01 MAR", infoX + 14, infoY + 90);
+  doc.fillColor("#cbd5e1").font("Helvetica").fontSize(7).text(location, infoX + 90, infoY + 90, {
+    width: infoW - 104,
+    align: "right",
+    ellipsis: true,
+  });
+
+  doc.rect(0, h - 6, w, 6).fill("#0ea5e9");
+}
+
+const updateParticipantLabSchema = z.object({
+  labId: z.string().uuid(),
+});
+
+const scanPreviewRequestSchema = z.object({
+  qr_hash: z.string().min(1),
+});
+
+
+// Auth middleware
+const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
+  if (req.session && (req.session as any).userId) {
+    return next();
+  }
+  res.status(401).json({ message: "Unauthorized" });
+};
+
+// Admin middleware
+const isAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = (req.session as any)?.userId;
+
+  if (!userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+
+  const user = await storage.getUserById(userId);
+
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  next();
+};
+
+// Load user middleware
+const loadUser = async (req: Request, res: Response, next: NextFunction) => {
+  if (req.session && (req.session as any).userId) {
+    const user = await storage.getUserById((req.session as any).userId);
+    if (user) {
+      req.user = user;
+    }
+  }
+  next();
+};
+
+// Validation schemas
+const scanRequestSchema = z.object({
+  qr_hash: z.string().min(1, "QR hash is required"),
+  scan_type: z.enum(["ENTRY", "EXIT"]),
+});
+
+const mealAnalyticsQuerySchema = z.object({
+  mealType: z.enum(mealTypes).optional(),
+});
+
+const resetMealsSchema = z.object({
+  mealType: z.enum(mealTypes).optional(),
+});
+
+
+const createTeamSchema = z.object({
+  name: z.string().min(1, "Team name is required"),
+  description: z.string().optional(),
+});
+
+const createParticipantSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email"),
+  teamId: z.string().uuid("Invalid team ID"),
+});
+
+const updateVolunteerSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().optional(),
+  email: z.string().email("Invalid email"),
+  organization: z.string().optional(),
+});
+
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express
+): Promise<Server> {
+  // Apply loadUser middleware to all routes
+  app.use(loadUser);
+
+  // Seed admin user
+  await storage.seedAdminUser();
+
+  // ================== AUTH ROUTES ==================
+
+  // POST /api/auth/signup - Register new volunteer
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const parseResult = signupSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const { email, password, firstName, lastName } = parseResult.data;
+
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({
+          error: "Email already registered",
+          message: "An account with this email already exists",
+        });
+      }
+
+      // Create new user (volunteers only through signup)
+      const user = await storage.createUser(email, password, firstName, lastName, "volunteer");
+
+      // Set session
+      (req.session as any).userId = user.id;
+      (req.session as any).role = user.role;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+      });
+    } catch (error) {
+      console.error("Signup error:", error);
+      res.status(500).json({ error: "Failed to create account" });
+    }
+  });
+
+  // POST /api/auth/login - Login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const parseResult = loginSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const { email, password } = parseResult.data;
+
+      // Find user
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({
+          error: "Invalid credentials",
+          message: "Email or password is incorrect",
+        });
+      }
+
+      // Validate password
+      const isValid = await storage.validatePassword(user, password);
+      if (!isValid) {
+        return res.status(401).json({
+          error: "Invalid credentials",
+          message: "Email or password is incorrect",
+        });
+      }
+
+      // Set session
+      (req.session as any).userId = user.id;
+      (req.session as any).role = user.role;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Failed to login" });
+    }
+  });
+
+  app.put("/api/auth/change-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+
+      if (!req.user?.id) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const result = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, req.user.id))
+        .limit(1);
+
+      const user = result[0];
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const isValid = await bcrypt.compare(
+        currentPassword,
+        user.passwordHash
+      );
+
+      if (!isValid) {
+        return res.status(400).json({
+          message: "Current password is incorrect",
+        });
+      }
+
+      const newHashedPassword = await bcrypt.hash(newPassword, 10);
+
+      await db
+        .update(users)
+        .set({
+          passwordHash: newHashedPassword,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+
+      res.json({ message: "Password updated successfully" });
+
+    } catch (error) {
+      console.error("CHANGE PASSWORD ERROR:", error);
+      res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // GET /api/auth/user - Get current user
+  app.get("/api/auth/user", isAuthenticated, async (req, res) => {
+    const user = await storage.getUserById((req.session as any).userId);
+    if (!user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    res.json({
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      phone: user.phone,
+      bio: user.bio,
+      organization: user.organization,
+      qrCodeHash: user.qrCodeHash,
+      isCheckedIn: user.isCheckedIn === "true",
+    });
+  });
+
+  // PUT /api/auth/profile - Update user profile
+  app.put("/api/auth/profile", isAuthenticated, async (req, res) => {
+    try {
+      const parseResult = profileUpdateSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const userId = (req.session as any).userId;
+      const updatedUser = await storage.updateUserProfile(userId, parseResult.data);
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        role: updatedUser.role,
+        phone: updatedUser.phone,
+        bio: updatedUser.bio,
+        organization: updatedUser.organization,
+      });
+    } catch (error) {
+      console.error("Profile update error:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // ================== VOLUNTEER ROUTES ==================
+
+  // GET /api/volunteers - Get all volunteers (admin gets full data, volunteers get limited view)
+  app.get("/api/volunteers", isAuthenticated, async (req, res) => {
+    try {
+      const volunteers = await storage.getVolunteers();
+      const isAdminUser = (req.session as any).role === "admin";
+      
+      // Return full data for admins, limited data for volunteers
+      res.json(volunteers.map(v => {
+        if (isAdminUser) {
+          return {
+            id: v.id,
+            email: v.email,
+            firstName: v.firstName,
+            lastName: v.lastName,
+            phone: v.phone,
+            bio: v.bio,
+            organization: v.organization,
+            qrCodeHash: v.qrCodeHash,
+            isCheckedIn: v.isCheckedIn === "true",
+            lastCheckIn: v.lastCheckIn,
+            createdAt: v.createdAt,
+          };
+        }
+        // Limited view for non-admins (only show check-in status)
+        return {
+          id: v.id,
+          firstName: v.firstName,
+          lastName: v.lastName,
+          organization: v.organization,
+          isCheckedIn: v.isCheckedIn === "true",
+        };
+      }));
+    } catch (error) {
+      console.error("Error fetching volunteers:", error);
+      res.status(500).json({ error: "Failed to fetch volunteers" });
+    }
+  });
+
+  // GET /api/scanner-users - List admins + volunteers for meal scanner assignment (admin only)
+  app.get("/api/scanner-users", isAuthenticated, isAdmin, async (_req, res) => {
+    try {
+      const users = await storage.getScannerUsers();
+      res.json(
+        users.map((u) => ({
+          id: u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          email: u.email,
+        }))
+      );
+    } catch (error) {
+      console.error("Error fetching scanner users:", error);
+      res.status(500).json({ error: "Failed to fetch scanner users" });
+    }
+  });
+
+  // POST /api/volunteers/:id/generate-qr - Generate QR code for volunteer (admin only)
+  app.post("/api/volunteers/:id/generate-qr", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const user = await storage.getUserById(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.role !== "volunteer") {
+        return res.status(400).json({ error: "QR codes can only be generated for volunteers" });
+      }
+      const qrHash = await storage.generateVolunteerQrHash(id);
+      res.json({ success: true, qrHash });
+    } catch (error) {
+      console.error("Error generating volunteer QR:", error);
+      res.status(500).json({ error: "Failed to generate QR code" });
+    }
+  });
+
+  // GET /api/volunteers/:id/qrcode - Download QR code for volunteer (admin only)
+  app.get("/api/volunteers/:id/qrcode", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const user = await storage.getUserById(id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (user.role !== "volunteer") {
+        return res.status(400).json({ error: "QR codes can only be generated for volunteers" });
+      }
+
+      // Generate QR hash if not exists
+      let qrHash = user.qrCodeHash;
+      if (!qrHash) {
+        qrHash = await storage.generateVolunteerQrHash(id);
+      }
+
+      const qrCodeBuffer = await QRCode.toBuffer(qrHash, {
+        type: "png",
+        width: 300,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#FFFFFF",
+        },
+      });
+
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Disposition", `attachment; filename="volunteer-qr-${user.firstName}.png"`);
+      res.send(qrCodeBuffer);
+    } catch (error) {
+      console.error("Error generating volunteer QR code:", error);
+      res.status(500).json({ error: "Failed to generate QR code" });
+    }
+  });
+
+  // POST /api/volunteers/:id/checkout - Checkout volunteer (admin only)
+  app.post("/api/volunteers/:id/checkout", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      const updated = await storage.updateVolunteerCheckIn(id, false);
+      if (!updated) {
+        return res.status(404).json({ error: "Volunteer not found" });
+      }
+      res.json({ success: true, volunteer: updated });
+    } catch (error) {
+      console.error("Error checking out volunteer:", error);
+      res.status(500).json({ error: "Failed to checkout volunteer" });
+    }
+  });
+
+  // PATCH /api/volunteers/:id - Update volunteer details (admin only)
+  app.patch("/api/volunteers/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parseResult = updateVolunteerSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const id = req.params.id as string;
+      const updated = await storage.updateVolunteer(id, parseResult.data);
+      if (!updated) {
+        return res.status(404).json({ error: "Volunteer not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating volunteer:", error);
+      if (error.code === "23505") {
+        return res.status(400).json({ error: "Email already in use" });
+      }
+      res.status(500).json({ error: "Failed to update volunteer" });
+    }
+  });
+
+  // DELETE /api/volunteers/:id - Delete volunteer (admin only)
+  app.delete("/api/volunteers/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteVolunteer(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting volunteer:", error);
+      if (error.message === "Volunteer not found") {
+        return res.status(404).json({ error: "Volunteer not found" });
+      }
+      res.status(500).json({ error: "Failed to delete volunteer" });
+    }
+  });
+
+  // ================== STATS ROUTES ==================
+
+  // GET /api/stats - Returns count of total participants vs checked-in participants
+  app.get("/api/stats", isAuthenticated, async (req, res) => {
+    try {
+      const stats = await storage.getStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+      res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // ================== SYSTEM MODE + MEAL ROUTES ==================
+  app.get("/api/system/mode", isAuthenticated, async (_req, res) => {
+    try {
+      const mode = await storage.getSystemModeConfig();
+      res.json(mode);
+    } catch (error) {
+      console.error("Error fetching system mode:", error);
+      res.status(500).json({ error: "Failed to fetch system mode" });
+    }
+  });
+
+  app.put("/api/system/mode", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parseResult = updateSystemModeSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const payload = parseResult.data;
+      if (payload.mode === "MEAL" && !payload.selectedMealType) {
+        return res.status(400).json({ error: "selectedMealType is required in MEAL mode" });
+      }
+      if (payload.mode === "MEAL" && (!payload.allowedScannerIds || payload.allowedScannerIds.length === 0)) {
+        return res.status(400).json({ error: "At least one scanner user must be selected in MEAL mode" });
+      }
+
+      const updated = await storage.updateSystemModeConfig(payload);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating system mode:", error);
+      res.status(500).json({ error: "Failed to update system mode" });
+    }
+  });
+
+  app.get("/api/meals/analytics", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parseResult = mealAnalyticsQuerySchema.safeParse(req.query);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid query",
+        });
+      }
+
+      const modeConfig = await storage.getSystemModeConfig();
+      const mealType =
+        (parseResult.data.mealType as MealType | undefined) ??
+        (modeConfig.selectedMealType as MealType | null);
+
+      if (!mealType) {
+        return res.status(400).json({ error: "mealType is required" });
+      }
+
+      const analytics = await storage.getMealAnalytics(mealType);
+      res.json({ mealType, ...analytics });
+    } catch (error) {
+      console.error("Error fetching meal analytics:", error);
+      res.status(500).json({ error: "Failed to fetch meal analytics" });
+    }
+  });
+
+  app.post("/api/participants/:id/meals/reset", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const participantId = req.params.id as string;
+      const parseResult = resetMealsSchema.safeParse(req.body ?? {});
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      await storage.resetParticipantMeals(participantId, parseResult.data.mealType as MealType | undefined);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error resetting participant meals:", error);
+      res.status(500).json({ error: "Failed to reset participant meals" });
+    }
+  });
+
+  // ================== TEAM ROUTES ==================
+
+  // GET /api/teams - Get all teams
+  app.get("/api/teams", isAuthenticated, async (req, res) => {
+    try {
+      const teams = await storage.getTeams();
+      res.json(teams);
+    } catch (error) {
+      console.error("Error fetching teams:", error);
+      res.status(500).json({ error: "Failed to fetch teams" });
+    }
+  });
+
+  // POST /api/teams - Create new team (admin only)
+  app.post("/api/teams", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const parseResult = createTeamSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message || "Invalid input",
+        });
+      }
+
+      const { name, description } = parseResult.data;
+      const userId = (req.session as any).userId;
+
+      const team = await storage.createTeam({
+        name,
+        description: description || null,
+        createdBy: userId,
+      });
+
+      res.json(team);
+    } catch (error: any) {
+      console.error("Error creating team:", error);
+      if (error.code === "23505") {
+        return res.status(400).json({ error: "Team name already exists" });
+      }
+      res.status(500).json({ error: "Failed to create team" });
+    }
+  });
+
+  // DELETE /api/teams/:id - Delete team (admin only)
+  app.delete("/api/teams/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteTeam(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting team:", error);
+      res.status(500).json({ error: "Failed to delete team" });
+    }
+  });
+// ================== LAB ROUTES ==================
+
+// GET /api/labs - list labs (authenticated)
+app.get("/api/labs", isAuthenticated, async (req, res) => {
+  const labs = await storage.getLabs();
+  res.json(labs);
+});
+
+// POST /api/labs - create lab (admin only)
+app.post("/api/labs", isAuthenticated, isAdmin, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: "Lab name is required" });
+    }
+
+    const lab = await storage.createLab({
+      name,
+      description,
+    });
+
+    res.json(lab);
+  } catch (err: any) {
+    console.error("Error creating lab:", err);
+
+    if (err.code === "23505") {
+      return res.status(400).json({ message: "Lab already exists" });
+    }
+
+    res.status(500).json({ message: "Failed to create lab" });
+  }
+});
+
+
+// server/routes.ts
+app.delete("/api/labs/:id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteLab(id);
+      res.sendStatus(204);
+    } catch (error) {
+      console.error("Delete lab error:", error);
+      res.status(500).json({ message: "Failed to delete lab" });
+    }
+  });
+
+app.post("/api/participants/:id/checkout", isAuthenticated, isAdmin, async (req, res) => {
+  try {    const id = req.params.id as string;
+    const updated = await storage.updateParticipantCheckIn(id, false);
+    if (!updated) {
+      return res.status(404).json({ error: "Participant not found" });
+    }
+    res.json({ success: true, participant: updated });
+  } catch (error) {
+    console.error("Error checking out participant:", error);
+    res.status(500).json({ error: "Failed to checkout participant" });
+  }
+});
+  
+  // Add this route inside your registerRoutes(app) function
+app.get("/api/participants/export-qrs", async (req, res) => {
+  // Authenticate and Authorize
+  if (!req.isAuthenticated() || req.user?.role !== "admin") {
+    return res.status(403).send("Unauthorized");
+  }
+
+  try {
+    let participants = await storage.getParticipants();
+
+    // Filter by lab if labId is provided
+    const labId = req.query.labId as string | undefined;
+    let labName = "";
+    if (labId) {
+      participants = participants.filter(p => p.lab?.id === labId);
+      // Get lab name from first participant
+      if (participants.length > 0) {
+        labName = participants[0].lab?.name || "Unknown_Lab";
+      }
+    }
+
+    if (!participants || participants.length === 0) {
+      return res.status(404).send("No participants found to export.");
+    }
+
+    // 13" × 19" page size in points (72 points = 1 inch)
+    const pageWidth = 13 * 72;
+    const pageHeight = 19 * 72;
+    const margin = 14;
+    const gutterX = 10;
+    const gutterY = 10;
+
+    // Calculate sticker dimensions for 4 columns × 6 rows
+    const availableWidth = pageWidth - 2 * margin;
+    const availableHeight = pageHeight - 2 * margin;
+    const stickerW = (availableWidth - 3 * gutterX) / 4;
+    const stickerH = (availableHeight - 5 * gutterY) / 6;
+
+    // Sticker layout dimensions
+    const accentBarHeight = 3;
+    const borderRadius = 6;
+
+    const doc = new PDFDocument({
+      margin: 0,
+      size: [pageWidth, pageHeight],
+    });
+
+    // Set Response Headers
+    res.setHeader('Content-Type', 'application/pdf');
+    const filename = labName 
+      ? `${labName}_QR_Stickers.pdf` 
+      : "Participant_QR_Stickers.pdf";
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    doc.pipe(res);
+
+    const stickersPerPage = 24;
+
+    for (let i = 0; i < participants.length; i++) {
+      const pageIndex = Math.floor(i / stickersPerPage);
+      const stickerIndex = i % stickersPerPage;
+
+      // Add new page after first 24 stickers, then every 24 stickers
+      if (stickerIndex === 0 && pageIndex > 0) {
+        doc.addPage({ size: [pageWidth, pageHeight], margin: 0 });
+      }
+
+      const col = stickerIndex % 4;
+      const row = Math.floor(stickerIndex / 4);
+
+      const x = margin + col * (stickerW + gutterX);
+      const y = margin + row * (stickerH + gutterY);
+
+      const p = participants[i];
+
+      // Draw white background
+      doc.roundedRect(x, y, stickerW, stickerH, 8)
+        .fillColor("#ffffff")
+        .fill();
+
+      // Draw black border
+      doc.roundedRect(x, y, stickerW, stickerH, 8)
+        .lineWidth(1.5)
+        .strokeColor("#000000")
+        .stroke();
+
+      // Calculate layout dimensions
+      const paddingTop = 8;
+      const paddingH = 8;
+      const paddingBottom = 8;
+      const textBlockHeight = 13 + 10 + 10 + 10; // name + email + team + lab
+      const gutterQRText = 5;
+
+      // QR size is whatever space is left
+      const qrSize = stickerH - paddingTop - gutterQRText - textBlockHeight - paddingBottom;
+
+      // QR positioning - centered horizontally
+      const qrX = x + (stickerW - qrSize) / 2;
+      const qrY = y + paddingTop;
+
+      // Generate QR matrix and render as clean filled squares (black & white only)
+      const qrCode = QRCode.create(p.qrCodeHash || "no-hash-available", { errorCorrectionLevel: "M" });
+      const qrMatrix = qrCode.modules.data;
+      const qrSize_modules = qrCode.modules.size;
+      const moduleSize = qrSize / qrSize_modules;
+
+      // Draw each QR module as a filled square (strictly black & white)
+      for (let row = 0; row < qrSize_modules; row++) {
+        for (let col = 0; col < qrSize_modules; col++) {
+          const val = qrMatrix[row * qrSize_modules + col];
+          if (val) {
+            const mx = qrX + col * moduleSize;
+            const my = qrY + row * moduleSize;
+            doc.rect(mx, my, moduleSize, moduleSize)
+              .fillColor("#000000")
+              .fill();
+          }
+        }
+      }
+
+      // Text block positioning - strictly below QR, centered
+      const textY = qrY + qrSize + gutterQRText;
+      const textX = x + paddingH;
+      const textW = stickerW - paddingH * 2;
+
+      // Name (bold, 10pt, black)
+      doc.fontSize(10)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text(p.name, textX, textY, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Email (normal, 7pt, gray)
+      doc.fontSize(7)
+        .font("Helvetica")
+        .fillColor("#666666")
+        .text(p.email, textX, textY + 13, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Team name (bold + value, centered)
+      doc.fontSize(6.5)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text(`TEAM  ${p.team?.name || "N/A"}`, textX, textY + 23, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Lab name (bold + value, centered)
+      doc.fontSize(6.5)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text(`LAB  ${p.lab?.name || "N/A"}`, textX, textY + 33, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Branding footer text (black bold)
+      doc.fontSize(4.5)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text("INNOQUEST #4  ·  DEPT OF CSE", textX, y + stickerH - 8, {
+          width: textW,
+          align: "center",
+        });
+
+      // Reset opacity for next sticker
+      doc.fillOpacity(1);
+    }
+
+    doc.end();
+
+  } catch (error) {
+    console.error("PDF Export Error:", error);
+    // If headers haven't been sent yet, send a JSON error
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Failed to generate PDF" });
+    }
+  }
+});
+
+app.get("/api/volunteers/export-qrs", async (req, res) => {
+  if (!req.isAuthenticated() || req.user?.role !== "admin") {
+    return res.status(403).send("Unauthorized");
+  }
+
+  try {
+    const volunteers = await storage.getVolunteers();
+    if (!volunteers || volunteers.length === 0) {
+      return res.status(404).send("No volunteers found to export.");
+    }
+
+    const doc = new PDFDocument({
+      margin: 0,
+      size: [ID_CARD_WIDTH, ID_CARD_HEIGHT],
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", 'attachment; filename="Volunteer_QRs.pdf"');
+    doc.pipe(res);
+
+    let isFirstPage = true;
+    for (const v of volunteers) {
+      if (!isFirstPage) {
+        doc.addPage({ size: [ID_CARD_WIDTH, ID_CARD_HEIGHT], margin: 0 });
+      }
+      isFirstPage = false;
+
+      const qrHash = v.qrCodeHash || (await storage.generateVolunteerQrHash(v.id));
+      const qrBuffer = await QRCode.toBuffer(qrHash, {
+        type: "png",
+        width: 300,
+        margin: 1,
+      });
+
+      drawPremiumCard(doc, {
+        name: `${v.firstName} ${v.lastName || ""}`.trim(),
+        subtitle: v.email,
+        teamOrOrg: v.organization || "Volunteer",
+        role: "Volunteer",
+        location: v.organization || "Event Team",
+        qrBuffer,
+      });
+    }
+
+    doc.end();
+  } catch (error) {
+    console.error("Volunteer PDF Export Error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Failed to generate volunteer PDF" });
+    }
+  }
+});
+
+// POST /api/participants/checkout-all
+app.post(
+  "/api/participants/checkout-all",
+  isAuthenticated,
+  isAdmin,
+  async (_req, res) => {
+    try {
+      const result = await storage.checkoutAllParticipants();
+      res.json({
+        success: true,
+        message: "All participants checked out",
+      });
+    } catch (error) {
+      console.error("Bulk checkout error:", error);
+      res.status(500).json({
+        error: "Failed to checkout all participants",
+      });
+    }
+  }
+);
+
+
+
+  // ================== PARTICIPANT ROUTES ==================
+
+// Validation schema
+const createParticipantSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  teamId: z.string().uuid(),
+  labId: z.string().uuid(),
+});
+
+// GET /api/participants - Get all participants
+app.get("/api/participants", isAuthenticated, async (_req, res) => {
+  try {
+    const participants = await storage.getParticipants();
+    res.json(participants);
+  } catch (error) {
+    console.error("Error fetching participants:", error);
+    res.status(500).json({ error: "Failed to fetch participants" });
+  }
+});
+
+// POST /api/participants - Create new participant (admin only)
+app.post("/api/participants", isAuthenticated, isAdmin, async (req, res) => {
+  try {
+    const parseResult = createParticipantSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        error: "Validation failed",
+        message: parseResult.error.errors[0]?.message || "Invalid input",
+      });
+    }
+
+    const { name, email, teamId, labId } = parseResult.data;
+
+    // Verify team exists
+    const team = await storage.getTeamById(teamId);
+    if (!team) {
+      return res.status(404).json({ error: "Team not found" });
+    }
+
+    // Verify lab exists
+    const labs = await storage.getLabs();
+    const lab = labs.find((l) => l.id === labId);
+    if (!lab) {
+      return res.status(404).json({ error: "Lab not found" });
+    }
+
+    // Generate QR hash
+    const qrCodeHash = generateQrHash(teamId, email);
+
+    const participant = await storage.createParticipant({
+      name,
+      email,
+      teamId,
+      labId,
+      qrCodeHash,
+    });
+
+    res.json(participant);
+  } catch (error: any) {
+    console.error("Error creating participant:", error);
+    if (error.code === "23505") {
+      return res.status(400).json({ error: "Participant already exists" });
+    }
+    res.status(500).json({ error: "Failed to create participant" });
+  }
+});
+
+// DELETE /api/participants/:id - Delete participant (admin only)
+app.delete("/api/participants/:id", isAuthenticated, isAdmin, async (req, res) => {
+  try {
+    const id = req.params.id as string;
+    await storage.deleteParticipant(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting participant:", error);
+    res.status(500).json({ error: "Failed to delete participant" });
+  }
+});
+
+// PATCH /api/participants/:id - Update participant details (admin only)
+app.patch("/api/participants/:id",
+    isAuthenticated,
+    isAdmin,
+    async (req, res) => {
+      try {
+        const participantId = req.params.id as string;
+        const { name, email, teamId, labId } = req.body;
+
+        if (!name || !email || !teamId || !labId) {
+          return res.status(400).json({ message: "Missing required fields" });
+        }
+
+        const updated = await storage.updateParticipant(participantId, {
+          name,
+          email,
+          teamId,
+          labId,
+        });
+
+        if (!updated) {
+          return res.status(404).json({ message: "Participant not found" });
+        }
+
+        res.json(updated);
+      } catch (error) {
+        console.error("Update participant error:", error);
+        res.status(500).json({ message: "Failed to update participant" });
+      }
+    }
+  );
+
+
+// GET /api/participants/:id/qrcode - Download QR code PNG (admin only)
+app.get("/api/participants/:id/qrcode", isAuthenticated, isAdmin, async (req, res) => {
+  try {
+    const id = req.params.id as string;
+    const participant = await storage.getParticipantById(id);
+
+    if (!participant) {
+      return res.status(404).json({ error: "Participant not found" });
+    }
+
+    const qrCodeBuffer = await QRCode.toBuffer(participant.qrCodeHash, {
+      type: "png",
+      width: 300,
+      margin: 2,
+    });
+
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="qr-${participant.name.replace(/\s+/g, "-")}.png"`
+    );
+
+    res.send(qrCodeBuffer);
+  } catch (error) {
+    console.error("Error generating QR code:", error);
+    res.status(500).json({ error: "Failed to generate QR code" });
+  }
+});
+
+// GET /api/participants/:id/qrcode-data - QR code as base64 (for UI)
+app.get("/api/participants/:id/qrcode-data", isAuthenticated, async (req, res) => {
+  try {
+    const id = req.params.id as string;
+    const participant = await storage.getParticipantById(id);
+
+    if (!participant) {
+      return res.status(404).json({ error: "Participant not found" });
+    }
+
+    const qrCodeDataUrl = await QRCode.toDataURL(participant.qrCodeHash, {
+      width: 300,
+      margin: 2,
+    });
+
+    res.json({
+      qrCode: qrCodeDataUrl,
+      hash: participant.qrCodeHash,
+    });
+  } catch (error) {
+    console.error("Error generating QR code:", error);
+    res.status(500).json({ error: "Failed to generate QR code" });
+  }
+});
+
+  app.get(
+    "/api/teams/:teamId/participants",
+    isAuthenticated,
+    async (req, res) => {
+      try {
+        const teamId = Array.isArray(req.params.teamId)
+            ? req.params.teamId[0]
+            : req.params.teamId;
+
+
+        const participants = await storage.getParticipantsByTeam(teamId);
+
+        res.json(participants);
+      } catch (error) {
+        console.error("Fetch team participants error:", error);
+        res.status(500).json({ message: "Failed to fetch participants" });
+      }
+    }
+  );
+
+  app.get(
+      "/api/labs/:labId/teams",
+      isAuthenticated,
+      isAdmin,
+      async (req, res) => {
+        try {
+          const labId = Array.isArray(req.params.labId)
+            ? req.params.labId[0]
+            : req.params.labId;
+
+
+          const teams = await storage.getTeamsByLab(labId);
+
+          res.json(teams);
+        } catch (error) {
+          console.error("Fetch lab teams error:", error);
+          res.status(500).json({ message: "Failed to fetch teams" });
+        }
+      }
+  );
+
+
+// UPDATE participant lab (admin only)
+app.put(
+  "/api/participants/:id/lab",
+  isAuthenticated,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const participantId = req.params.id as string;
+
+      const parseResult = updateParticipantLabSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          message: parseResult.error.errors[0]?.message,
+        });
+      }
+
+      const { labId } = parseResult.data;
+
+      // check participant exists
+      const participant = await storage.getParticipantById(participantId);
+      if (!participant) {
+        return res.status(404).json({ error: "Participant not found" });
+      }
+
+      // check lab exists
+      const labs = await storage.getLabs();
+      const labExists = labs.find((l) => l.id === labId);
+      if (!labExists) {
+        return res.status(404).json({ error: "Lab not found" });
+      }
+
+      // update lab
+      const updated = await storage.updateParticipantLab(
+        participantId,
+        labId
+      );
+
+      res.json({ success: true, participant: updated });
+    } catch (error) {
+      console.error("Error updating participant lab:", error);
+      res.status(500).json({ error: "Failed to update lab" });
+    }
+  }
+);
+
+ app.get("/api/participants/exportAttendace", async (req, res) => {
+  // 1. Admin Authorization
+  if (!req.isAuthenticated() || req.user?.role !== "admin") {
+    return res.status(403).send("Unauthorized");
+  }
+
+  try {
+    // 2. Fetch all necessary data
+    const participants = await storage.getParticipants();
+    const teams = await storage.getTeams();
+    const labs = await storage.getLabs();
+
+    // 3. Transform data into a readable format for Excel
+    const reportData = participants.map(p => {
+      const team = teams.find(t => t.id === p.teamId);
+      const lab = labs.find(l => l.id === p.labId);
+      
+      return {
+        "Participant Name": p.name,
+        "Email Address": p.email,
+        "Assigned Team": team?.name || "N/A",
+        "Assigned Lab": lab?.name || "N/A",
+        "Check-in Status": p.isCheckedIn ? "PRESENT" : "ABSENT",
+        "Registration Date": p.createdAt ? new Date(p.createdAt).toLocaleString() : "N/A"
+      };
+    });
+
+    // 4. Create Excel Workbook using XLSX
+    const worksheet = XLSX.utils.json_to_sheet(reportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
+
+    // 5. Write to buffer and send
+    const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="Attendance_Report.xlsx"');
+    
+    res.send(excelBuffer);
+
+  } catch (error) {
+    console.error("Export Error:", error);
+    res.status(500).json({ message: "Failed to generate Excel report" });
+  }
+});
+
+  app.post(
+  "/api/participants/bulk-upload",
+  upload.single("file"),
+  isAuthenticated,
+  isAdmin,
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    try {
+      const rows = parseParticipantExcel(req.file.buffer);
+
+      let created = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      // 🔹 IMPORTANT: Fetch ALL teams & labs (system + non-system)
+      const allTeams = await storage.getAllTeams();
+      const allLabs = await storage.getAllLabs();
+
+      const teamMap = new Map<string, string>(); // teamName → teamId
+      const labMap = new Map<string, string>();  // labName → labId
+
+      allTeams.forEach(t =>
+        teamMap.set(t.name.toLowerCase(), t.id)
+      );
+      allLabs.forEach(l =>
+        labMap.set(l.name.toLowerCase(), l.id)
+      );
+
+      for (const row of rows) {
+        try {
+          const { name, email, team, lab } = row;
+
+          if (!name || !email || !team || !lab) {
+            failed++;
+            continue;
+          }
+
+          // 1️⃣ Skip duplicate participants
+          const existing = await storage.getParticipantByEmail(email);
+          if (existing) {
+            skipped++;
+            continue;
+          }
+
+          // 2️⃣ Get or create TEAM (hidden from UI)
+          let teamId = teamMap.get(team.toLowerCase());
+          if (!teamId) {
+            const newTeam = await storage.createTeam({
+              name: team,
+              description: "Bulk uploaded",
+              createdBy: req.user!.id,
+              isSystem: true, // 🔥 KEY FIX
+            });
+
+            teamId = newTeam.id;
+            teamMap.set(team.toLowerCase(), teamId);
+          }
+
+          // 3️⃣ Get or create LAB
+          let labId = labMap.get(lab.toLowerCase());
+          if (!labId) {
+            const newLab = await storage.createLab({
+              name: lab,
+              description: "Bulk uploaded",
+              isSystem: true, // optional but recommended
+            });
+
+            labId = newLab.id;
+            labMap.set(lab.toLowerCase(), labId);
+          }
+
+          // 4️⃣ Create participant
+          await storage.createParticipant({
+            name,
+            email,
+            teamId,
+            labId,
+            qrCodeHash: crypto.randomUUID(),
+          });
+
+          created++;
+        } catch (rowError) {
+          console.error("Row failed:", rowError);
+          failed++;
+        }
+      }
+
+      res.json({ created, skipped, failed });
+    } catch (error) {
+      console.error("Bulk upload error:", error);
+      res.status(500).json({ message: "Bulk upload failed" });
+    }
+  }
+);
+
+  // ================== SCAN ROUTES ==================
+
+  // GET /api/scans/recent - Get recent scans with participant info
+  app.get("/api/scans/recent", isAuthenticated, async (req, res) => {
+    try {
+      const rawLimit = req.query.limit;
+      const limit =
+      typeof rawLimit === "string"
+        ? parseInt(rawLimit, 10)
+        : 10;
+      const scans = await storage.getRecentScansWithParticipants(limit);
+      res.json(scans);
+    } catch (error) {
+      console.error("Error fetching recent scans:", error);
+      res.status(500).json({ error: "Failed to fetch recent scans" });
+    }
+  });
+
+
+ // ================== SCAN PREVIEW ==================
+app.post("/api/scan-preview", isAuthenticated, async (req, res) => {
+  try {
+    const parseResult = scanPreviewRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid QR data",
+      });
+    }
+
+    const { qr_hash } = parseResult.data;
+    const modeConfig = await storage.getSystemModeConfig();
+    const scannerUserId = (req.session as any).userId as string | undefined;
+    const isMealScanner = Boolean(
+      scannerUserId && modeConfig.allowedScannerIds.includes(scannerUserId)
+    );
+
+    if (modeConfig.mode === "MEAL" && isMealScanner) {
+      const mealType = modeConfig.selectedMealType as MealType | null;
+      if (!mealType) {
+        return res.status(400).json({
+          success: false,
+          message: "Meal mode is enabled but no meal type is selected",
+        });
+      }
+
+      const participant = await storage.getParticipantByQrHash(qr_hash);
+      if (participant) {
+        if (!modeConfig.allowedLabIds.includes(participant.labId)) {
+          return res.status(403).json({
+            success: false,
+            message: "Lab not allowed",
+          });
+        }
+
+        const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
+        if (alreadyConsumed) {
+          return res.status(400).json({
+            success: false,
+            message: "Already consumed",
+          });
+        }
+
+        return res.json({
+          success: true,
+          mode: "MEAL",
+          mealType,
+          type: "participant",
+          name: participant.name,
+          scanType: "ENTRY",
+        });
+      }
+    }
+
+    // -------- Participant --------
+    const participant = await storage.getParticipantByQrHash(qr_hash);
+    if (participant) {
+      const scanType: "ENTRY" | "EXIT" =
+        participant.isCheckedIn ? "EXIT" : "ENTRY";
+
+      return res.json({
+        success: true,
+        type: "participant",
+        name: participant.name,
+        scanType,
+        isCheckedIn: participant.isCheckedIn, // 🔥 ADD THIS
+      });
+    }
+
+    // -------- Volunteer --------
+    const volunteer = await storage.getVolunteerByQrHash(qr_hash);
+    if (volunteer) {
+      return res.json({
+        success: true,
+        type: "volunteer",
+        name: volunteer.firstName,
+        scanType: volunteer.isCheckedIn === "true" ? "EXIT" : "ENTRY",
+        isCheckedIn: volunteer.isCheckedIn === "true",
+      });
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: "QR not linked to any user",
+    });
+
+  } catch (err) {
+    console.error("SCAN PREVIEW ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Scan preview failed",
+    });
+  }
+});
+
+
+
+  // POST /api/scan - Scan a QR code to check in a participant or volunteer
+// ================== SCAN CONFIRM ==================
+app.post("/api/scan", isAuthenticated, async (req: any, res) => {
+  try {
+    const parseResult = scanRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid scan request",
+      });
+    }
+
+    const { qr_hash, scan_type } = parseResult.data;
+    const modeConfig = await storage.getSystemModeConfig();
+    const scannerUserId = (req.session as any).userId as string | undefined;
+    const isMealScanner = Boolean(
+      scannerUserId && modeConfig.allowedScannerIds.includes(scannerUserId)
+    );
+
+    if (modeConfig.mode === "MEAL" && isMealScanner) {
+      const mealType = modeConfig.selectedMealType as MealType | null;
+      if (!mealType) {
+        return res.status(400).json({
+          success: false,
+          message: "Meal mode is enabled but no meal type is selected",
+        });
+      }
+
+      const participant = await storage.getParticipantByQrHash(qr_hash);
+      if (participant) {
+        if (!modeConfig.allowedLabIds.includes(participant.labId)) {
+          return res.status(403).json({
+            success: false,
+            message: "Lab not allowed",
+          });
+        }
+
+        const alreadyConsumed = await storage.hasConsumedMeal(participant.id, mealType);
+        if (alreadyConsumed) {
+          return res.status(400).json({
+            success: false,
+            message: "Already consumed",
+          });
+        }
+
+        await storage.consumeMeal(participant.id, mealType);
+
+        return res.json({
+          success: true,
+          mode: "MEAL",
+          mealType,
+          type: "participant",
+          scanType: "ENTRY",
+          message: `${mealType} consumed for ${participant.name}`,
+          participant: {
+            id: participant.id,
+            name: participant.name,
+            team: participant.team,
+            lab: participant.lab,
+            isCheckedIn: participant.isCheckedIn,
+          },
+        });
+      }
+    }
+
+    // ================= PARTICIPANT =================
+    const participant = await storage.getParticipantByQrHash(qr_hash);
+
+    if (participant) {
+      const isCheckIn = scan_type === "ENTRY";
+
+      await storage.updateParticipantCheckIn(
+        participant.id,
+        isCheckIn
+      );
+
+      const userId = (req.session as any).userId ?? "scanner";
+
+      await storage.createScanLog({
+        participantId: participant.id,
+        scannedBy: userId,
+        scanType: scan_type,
+      });
+
+      return res.json({
+        success: true,
+        type: "participant",
+        scanType: scan_type,
+        message:
+          scan_type === "ENTRY"
+            ? `Checked in ${participant.name}`
+            : `Checked out ${participant.name}`,
+        participant: {
+          id: participant.id,
+          name: participant.name,
+          team: participant.team,
+          lab: participant.lab,
+          isCheckedIn: isCheckIn,
+        },
+      });
+    }
+
+    // ================= VOLUNTEER =================
+    const volunteer = await storage.getVolunteerByQrHash(qr_hash);
+
+    if (volunteer) {
+      const isCurrentlyCheckedIn = volunteer.isCheckedIn === "true";
+      const isCheckIn = scan_type === "ENTRY";
+
+      if (isCheckIn && isCurrentlyCheckedIn) {
+        return res.status(400).json({
+          success: false,
+          message: "Volunteer already checked in",
+        });
+      }
+
+      if (!isCheckIn && !isCurrentlyCheckedIn) {
+        return res.status(400).json({
+          success: false,
+          message: "Volunteer already checked out",
+        });
+      }
+
+      const updated = await storage.updateVolunteerCheckIn(
+        volunteer.id,
+        isCheckIn
+      );
+
+      return res.json({
+        success: true,
+        type: "volunteer",
+        scanType: scan_type,
+        message:
+          scan_type === "ENTRY"
+            ? `Checked in volunteer ${updated!.firstName}`
+            : `Checked out volunteer ${updated!.firstName}`,
+        volunteer: {
+          id: updated!.id,
+          firstName: updated!.firstName,
+          lastName: updated!.lastName,
+          isCheckedIn: isCheckIn,
+        },
+      });
+    }
+
+    // ================= NOT FOUND =================
+    return res.status(404).json({
+      success: false,
+      message: "QR not recognized",
+    });
+
+  } catch (err) {
+    console.error("SCAN CONFIRM ERROR:", err);
+    res.status(500).json({
+      success: false,
+      message: "Scan failed",
+    });
+  }
+});
+
+
+
+  return httpServer;
+}
