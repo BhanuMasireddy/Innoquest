@@ -1000,54 +1000,176 @@ app.get("/api/participants/export-qrs", async (req, res) => {
 });
 
 app.get("/api/volunteers/export-qrs", async (req, res) => {
+  // Authenticate and Authorize
   if (!req.isAuthenticated() || req.user?.role !== "admin") {
     return res.status(403).send("Unauthorized");
   }
 
   try {
-    const volunteers = await storage.getVolunteers();
+    let volunteers = await storage.getVolunteers();
+
     if (!volunteers || volunteers.length === 0) {
       return res.status(404).send("No volunteers found to export.");
     }
 
+    // 13" × 19" page size in points (72 points = 1 inch)
+    const pageWidth = 13 * 72;
+    const pageHeight = 19 * 72;
+    const margin = 14;
+    const gutterX = 10;
+    const gutterY = 10;
+
+    // Calculate sticker dimensions for 4 columns × 6 rows
+    const availableWidth = pageWidth - 2 * margin;
+    const availableHeight = pageHeight - 2 * margin;
+    const stickerW = (availableWidth - 3 * gutterX) / 4;
+    const stickerH = (availableHeight - 5 * gutterY) / 6;
+
+    // Sticker layout dimensions
+    const accentBarHeight = 3;
+    const borderRadius = 6;
+
     const doc = new PDFDocument({
       margin: 0,
-      size: [ID_CARD_WIDTH, ID_CARD_HEIGHT],
+      size: [pageWidth, pageHeight],
     });
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'attachment; filename="Volunteer_QRs.pdf"');
+    // Set Response Headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Volunteer_QR_Stickers.pdf"`);
+
     doc.pipe(res);
 
-    let isFirstPage = true;
-    for (const v of volunteers) {
-      if (!isFirstPage) {
-        doc.addPage({ size: [ID_CARD_WIDTH, ID_CARD_HEIGHT], margin: 0 });
+    const stickersPerPage = 24;
+
+    for (let i = 0; i < volunteers.length; i++) {
+      const pageIndex = Math.floor(i / stickersPerPage);
+      const stickerIndex = i % stickersPerPage;
+
+      // Add new page after first 24 stickers, then every 24 stickers
+      if (stickerIndex === 0 && pageIndex > 0) {
+        doc.addPage({ size: [pageWidth, pageHeight], margin: 0 });
       }
-      isFirstPage = false;
 
+      const col = stickerIndex % 4;
+      const row = Math.floor(stickerIndex / 4);
+
+      const x = margin + col * (stickerW + gutterX);
+      const y = margin + row * (stickerH + gutterY);
+
+      const v = volunteers[i];
+
+      // Draw white background
+      doc.rect(x, y, stickerW, stickerH)
+        .fillColor("#ffffff")
+        .fill();
+
+      // Draw black border
+      doc.rect(x, y, stickerW, stickerH)
+        .lineWidth(1.5)
+        .strokeColor("#000000")
+        .stroke();
+
+      // Calculate layout dimensions
+      const paddingTop = 8;
+      const paddingH = 8;
+      const paddingBottom = 8;
+      const textBlockHeight = 13 + 10 + 10 + 10; // name + email + team + lab
+      const gutterQRText = 5;
+
+      // QR size is whatever space is left
+      const qrSize = stickerH - paddingTop - gutterQRText - textBlockHeight - paddingBottom;
+
+      // QR positioning - centered horizontally
+      const qrX = x + (stickerW - qrSize) / 2;
+      const qrY = y + paddingTop;
+
+      // Generate QR matrix and render as clean filled squares (black & white only)
       const qrHash = v.qrCodeHash || (await storage.generateVolunteerQrHash(v.id));
-      const qrBuffer = await QRCode.toBuffer(qrHash, {
-        type: "png",
-        width: 300,
-        margin: 1,
-      });
+      const qrCode = QRCode.create(qrHash, { errorCorrectionLevel: "M" });
+      const qrMatrix = qrCode.modules.data;
+      const qrSize_modules = qrCode.modules.size;
+      const moduleSize = qrSize / qrSize_modules;
 
-      drawPremiumCard(doc, {
-        name: `${v.firstName} ${v.lastName || ""}`.trim(),
-        subtitle: v.email,
-        teamOrOrg: v.organization || "Volunteer",
-        role: "Volunteer",
-        location: v.organization || "Event Team",
-        qrBuffer,
-      });
+      // Draw each QR module as a filled square (strictly black & white)
+      for (let row = 0; row < qrSize_modules; row++) {
+        for (let col = 0; col < qrSize_modules; col++) {
+          const val = qrMatrix[row * qrSize_modules + col];
+          if (val) {
+            const mx = qrX + col * moduleSize;
+            const my = qrY + row * moduleSize;
+            doc.rect(mx, my, moduleSize, moduleSize)
+              .fillColor("#000000")
+              .fill();
+          }
+        }
+      }
+
+      // Text block positioning - strictly below QR, centered
+      const textY = qrY + qrSize + gutterQRText;
+      const textX = x + paddingH;
+      const textW = stickerW - paddingH * 2;
+
+      // Name (bold, 10pt, black)
+      doc.fontSize(10)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text(`${v.firstName} ${v.lastName || ""}`.trim(), textX, textY, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Email (normal, 7pt, gray)
+      doc.fontSize(7)
+        .font("Helvetica")
+        .fillColor("#666666")
+        .text(v.email, textX, textY + 13, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Organization name (centered)
+      doc.fontSize(6.5)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text(`Anurag University`, textX, textY + 23, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Role (centered)
+      doc.fontSize(6.5)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text(`Volunteer`, textX, textY + 33, {
+          width: textW,
+          align: "center",
+          ellipsis: true,
+        });
+
+      // Branding footer text (black bold)
+      doc.fontSize(4.5)
+        .font("Helvetica-Bold")
+        .fillColor("#000000")
+        .text("INNOQUEST #4  ·  DEPT OF CSE", textX, y + stickerH - 8, {
+          width: textW,
+          align: "center",
+        });
+
+      // Reset opacity for next sticker
+      doc.fillOpacity(1);
     }
 
     doc.end();
+
   } catch (error) {
     console.error("Volunteer PDF Export Error:", error);
+    // If headers haven't been sent yet, send a JSON error
     if (!res.headersSent) {
-      res.status(500).json({ message: "Failed to generate volunteer PDF" });
+      res.status(500).json({ message: "Failed to generate PDF" });
     }
   }
 });
