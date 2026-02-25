@@ -84,8 +84,8 @@ function drawPremiumCard(
 
   const qrX = (w - 110) / 2;
   const qrY = 104;
-  doc.roundedRect(qrX - 4, qrY - 4, 118, 118, 8).fill("#2a3f5f");
-  doc.roundedRect(qrX, qrY, 110, 110, 8).fill("#ffffff");
+  doc.rect(qrX - 4, qrY - 4, 118, 118).fill("#2a3f5f");
+  doc.rect(qrX, qrY, 110, 110).fill("#ffffff");
   doc.image(qrBuffer, qrX + 8, qrY + 8, { fit: [94, 94] });
   doc.fillColor("#a5f3fc").font("Helvetica").fontSize(7).text("SCAN FOR ENTRY", 0, 222, {
     align: "center",
@@ -96,8 +96,8 @@ function drawPremiumCard(
   const infoY = 240;
   const infoW = w - 20;
   const infoH = 132;
-  doc.roundedRect(infoX, infoY, infoW, infoH, 10).fillOpacity(0.15).fill("#1f2937").fillOpacity(1);
-  doc.roundedRect(infoX, infoY, infoW, infoH, 10).lineWidth(1).strokeOpacity(0.35).stroke("#dbeafe").strokeOpacity(1);
+  doc.rect(infoX, infoY, infoW, infoH).fillOpacity(0.15).fill("#1f2937").fillOpacity(1);
+  doc.rect(infoX, infoY, infoW, infoH).lineWidth(1).strokeOpacity(0.35).stroke("#dbeafe").strokeOpacity(1);
 
   doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(15).text(name.toUpperCase(), infoX + 8, infoY + 12, {
     align: "center",
@@ -111,13 +111,13 @@ function drawPremiumCard(
     });
   }
 
-  doc.roundedRect(infoX + 16, infoY + 50, 94, 18, 9).fillOpacity(0.3).fill("#0369a1").fillOpacity(1);
+  doc.rect(infoX + 16, infoY + 50, 94, 18).fillOpacity(0.3).fill("#0369a1").fillOpacity(1);
   doc.fillColor("#e0f2fe").font("Helvetica-Bold").fontSize(7).text(teamOrOrg.toUpperCase(), infoX + 18, infoY + 56, {
     width: 90,
     align: "center",
     ellipsis: true,
   });
-  doc.roundedRect(infoX + 116, infoY + 50, 68, 18, 9).fill("#334155");
+  doc.rect(infoX + 116, infoY + 50, 68, 18).fill("#334155");
   doc.fillColor("#e2e8f0").font("Helvetica-Bold").fontSize(7).text(role.toUpperCase(), infoX + 118, infoY + 56, {
     width: 64,
     align: "center",
@@ -886,12 +886,12 @@ app.get("/api/participants/export-qrs", async (req, res) => {
       const p = participants[i];
 
       // Draw white background
-      doc.roundedRect(x, y, stickerW, stickerH, 8)
+      doc.rect(x, y, stickerW, stickerH)
         .fillColor("#ffffff")
         .fill();
 
       // Draw black border
-      doc.roundedRect(x, y, stickerW, stickerH, 8)
+      doc.rect(x, y, stickerW, stickerH)
         .lineWidth(1.5)
         .strokeColor("#000000")
         .stroke();
