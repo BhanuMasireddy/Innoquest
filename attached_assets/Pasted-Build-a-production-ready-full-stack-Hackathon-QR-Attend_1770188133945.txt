@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Build a production-ready, full-stack **Hackathon QR Attendance System** in a monorepo structure.
 
 ### 1. Project Architecture
@@ -46,4 +47,54 @@ Build a production-ready, full-stack **Hackathon QR Attendance System** in a mon
 - Create a root `package.json` with a script `"start": "concurrently \"npm run server --prefix backend\" \"npm run dev --prefix frontend\""`.
 - Setup Vite to proxy `/api` requests to `http://localhost:5000`.
 
+=======
+Build a production-ready, full-stack **Hackathon QR Attendance System** in a monorepo structure.
+
+### 1. Project Architecture
+- **Root:** Use `concurrently` to run backend and frontend.
+- **Backend:** Node.js + Express + TypeScript (Port 5000).
+- **Frontend:** React + Vite + TypeScript + Tailwind CSS (Port 5173).
+- **Database:** Supabase (PostgreSQL).
+
+### 2. Database Schema (Create a 'schema.sql' file with this content)
+- **Table `profiles`**: id (uuid, PK, references auth.users), email (text), role (text: 'admin' OR 'volunteer').
+- **Table `participants`**: id (uuid, PK), name (text), email (text), team_name (text), is_checked_in (bool), qr_code_hash (text, unique).
+- **Table `scan_logs`**: id (uuid), participant_id (fk), scanned_by (fk to profiles), scan_type (text: 'ENTRY'), timestamp.
+
+### 3. Backend Requirements (/backend folder)
+- **Dependencies:** `express`, `cors`, `dotenv`, `@supabase/supabase-js`, `jsonwebtoken`.
+- **Middleware:** Create `authMiddleware.ts` that verifies the Supabase JWT from the `Authorization` header.
+- **API Endpoints:**
+  - `POST /api/scan`:
+    - Accepts `{ qr_hash, scan_type }`.
+    - Checks if participant exists.
+    - If `scan_type` is 'ENTRY' and user is already checked in, return error.
+    - Updates `is_checked_in = true`.
+    - Inserts record into `scan_logs`.
+  - `GET /api/stats`: Returns count of total participants vs checked-in participants.
+- **Error Handling:** Return structured JSON `{ error: string }`.
+
+### 4. Frontend Requirements (/frontend folder)
+- **Styling:** Use **Tailwind CSS**. Create a modern, dark-mode "Cyberpunk/Hackathon" aesthetic (Dark grays, Neon Purples/Blues).
+- **Components:**
+  - Create reusable UI components in `/components/ui`: `Button`, `Card`, `Input` (mimic Shadcn/UI style using Tailwind classes).
+- **Libraries:**
+  - `html5-qrcode` for the scanner.
+  - `@tanstack/react-query` for state management.
+  - `lucide-react` for icons.
+  - `react-hot-toast` for success/error notifications.
+- **Pages:**
+  1.  **Login:** Email/Password form using Supabase Auth.
+  2.  **Dashboard (Admin):** Shows live stats (Total Check-ins) and a list of recent scans.
+  3.  **Scanner (Volunteer):**
+      - Renders the camera feed.
+      - On successful scan: Play a "beep" sound, show a Green Toast notification, and display the Participant's Name.
+      - Handle duplicate scans gracefully (Red Toast).
+
+### 5. Deployment & Config
+- Create a `.replit` file to run the app.
+- Create a root `package.json` with a script `"start": "concurrently \"npm run server --prefix backend\" \"npm run dev --prefix frontend\""`.
+- Setup Vite to proxy `/api` requests to `http://localhost:5000`.
+
+>>>>>>> d08312c538555aa7c89bd21c5acf49f0adc0434d
 **Important:** Generate all code files, configuration files, and install all necessary dependencies automatically.
