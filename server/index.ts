@@ -14,6 +14,12 @@ app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// ================== HEALTH CHECK ENDPOINT ==================
+// Lightweight endpoint for UptimeRobot - no auth, no database
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ status: "OK" });
+});
+
 (async () => {
   try {
     // 1. Initialize Auth
